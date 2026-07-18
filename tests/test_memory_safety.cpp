@@ -310,9 +310,18 @@ void stress_hazard_concurrent() {
  
     CHECK(errors.load() == 0);  // no use-after-free observed
 }
- 
+
+void test_domain_lifetime_ok() {
+    SECTION("HazardDomain — destroy after release_thread_handle");
+    auto *domain = new quark::HazardDomain();
+    (void)quark::thread_handle(*domain);
+    quark::release_thread_handle(*domain);
+    CHECK(domain->live_handles() == 0);
+    delete domain;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
- 
+
 int main() {
     std::cout << "=== quark memory safety tests ===\n";
 
@@ -331,6 +340,7 @@ int main() {
     test_custom_reclaimer();
     test_retire_defers_protected_node();
     stress_hazard_concurrent();
+    test_domain_lifetime_ok();
 
     std::cout << std::format("\n{}/{} tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

@@ -63,12 +63,12 @@
 #pragma once
 
 #include <quark/core/arch.hpp>
+#include <quark/util/assert.hpp>
 #include <quark/util/detail/move_only_function.hpp>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -228,7 +228,10 @@ public:
   /**
    * @brief Returns the thread's hazard record for this domain.
    */
-  [[nodiscard]] HazardRecord *record() const noexcept { return m_record; }
+  [[nodiscard]] HazardRecord *record() const noexcept {
+    check_epoch();
+    return m_record;
+  }
 
   /**
    * @brief Queues `ptr` for reclamation on this thread's retire list.
@@ -239,6 +242,7 @@ public:
    *       exceeds @ref MAX_RETIRE_COUNT.
    */
   template <typename T> void retire(T *ptr) {
+    check_epoch();
     if (ptr == nullptr)
       return;
     retire_impl(ptr, [ptr] { delete ptr; });
@@ -255,6 +259,7 @@ public:
    *       exceeds @ref MAX_RETIRE_COUNT.
    */
   template <typename T, typename F> void retire(T *ptr, F &&deleter) {
+    check_epoch();
     if (ptr == nullptr)
       return;
     retire_impl(ptr, [ptr, d = std::forward<F>(deleter)]() mutable { d(ptr); });
@@ -266,6 +271,8 @@ public:
   void flush();
 
 private:
+  void check_epoch() const;
+
   void retire_impl(void *ptr, detail::move_only_function<void()> fn) {
     m_retire_list.push_back(RetiredNode(ptr, std::move(fn)));
     if (m_retire_list.size() >= MAX_RETIRE_COUNT)
@@ -274,6 +281,7 @@ private:
 
   HazardDomain &m_domain;                  ///< Bound reclamation domain
   HazardRecord *m_record;                  ///< Acquired hazard record
+  std::uint64_t m_epoch;                   ///< Domain epoch at acquire time
   std::vector<RetiredNode> m_retire_list; ///< Per-handle retirees
 };
 
@@ -295,12 +303,19 @@ public:
 
   /**
    * @brief Reclaims orphaned nodes after asserting no records remain in use.
+   *
+   * @warning Aborts if any @ref ThreadHazardHandle is still live.
    */
   ~HazardDomain() {
+    if (m_live_handles.load(std::memory_order_acquire) != 0) {
+      detail::hazard_fatal(
+          "HazardDomain destroyed with live ThreadHazardHandle(s)");
+    }
+    m_epoch.fetch_add(1, std::memory_order_acq_rel);
+
     for (auto &rec : m_records) {
       const bool busy = rec.in_use.load(std::memory_order_acquire);
-      assert(!busy &&
-             "HazardDomain destroyed while threads still hold records");
+      QUARK_ASSERT(!busy);
       (void)busy;
     }
 
@@ -336,6 +351,26 @@ public:
    * @brief Forces a scan of the calling thread's retire list for this domain.
    */
   void flush();
+
+  /** @brief Monotonic epoch; bumped when the domain is destroyed. */
+  [[nodiscard]] std::uint64_t epoch() const noexcept {
+    return m_epoch.load(std::memory_order_acquire);
+  }
+
+  /** @brief Number of live @ref ThreadHazardHandle instances for this domain. */
+  [[nodiscard]] std::uint64_t live_handles() const noexcept {
+    return m_live_handles.load(std::memory_order_acquire);
+  }
+
+  /** @brief Increments the live-handle count (called by handle construction). */
+  void on_handle_acquired() noexcept {
+    m_live_handles.fetch_add(1, std::memory_order_acq_rel);
+  }
+
+  /** @brief Decrements the live-handle count (called by handle destruction). */
+  void on_handle_released() noexcept {
+    m_live_handles.fetch_sub(1, std::memory_order_acq_rel);
+  }
 
   /**
    * @brief Scans a retire list and reclaims nodes not present in any hazard
@@ -452,12 +487,24 @@ private:
   std::array<HazardRecord, MAX_THREADS> m_records{}; ///< Global hazard table
   std::mutex m_orphan_mutex;           ///< Guards @ref m_orphans
   std::vector<RetiredNode> m_orphans; ///< Cross-thread deferred retirees
+  std::atomic<std::uint64_t> m_epoch{1}; ///< Bumped on domain destruction
+  std::atomic<std::uint64_t> m_live_handles{0}; ///< Active thread handles
 };
 
+inline void ThreadHazardHandle::check_epoch() const {
+  if (m_epoch != m_domain.epoch())
+    detail::hazard_fatal("ThreadHazardHandle: domain epoch mismatch");
+}
+
 inline ThreadHazardHandle::ThreadHazardHandle(HazardDomain &domain)
-    : m_domain(domain), m_record(domain.acquire_record()) {}
+    : m_domain(domain), m_record(domain.acquire_record()),
+      m_epoch(domain.epoch()) {
+  domain.on_handle_acquired();
+  QUARK_ASSERT(m_record != nullptr);
+}
 
 inline ThreadHazardHandle::~ThreadHazardHandle() {
+  check_epoch();
   // Flush while our slots may still publish protections, clear slots, then
   // flush again so nodes we were protecting become reclaimable.
   m_domain.scan(m_retire_list);
@@ -467,9 +514,13 @@ inline ThreadHazardHandle::~ThreadHazardHandle() {
   // Survivors are still protected by other threads — hand off to the domain
   // so a later scan (or domain destruction) can reclaim them.
   m_domain.adopt_orphans(std::move(m_retire_list));
+  m_domain.on_handle_released();
 }
 
-inline void ThreadHazardHandle::flush() { m_domain.scan(m_retire_list); }
+inline void ThreadHazardHandle::flush() {
+  check_epoch();
+  m_domain.scan(m_retire_list);
+}
 
 /**
  * @brief RAII guard for a single hazard slot.
@@ -496,7 +547,8 @@ public:
    */
   HazardGuard(HazardRecord *record, std::size_t slot_index) noexcept
       : m_slot(record->slots[slot_index]) {
-    assert(slot_index < HP_PER_THREAD);
+    QUARK_ASSERT(record != nullptr);
+    QUARK_ASSERT(slot_index < HP_PER_THREAD);
   }
 
   /**
@@ -548,6 +600,16 @@ private:
 }
 
 /**
+ * @brief Thread-local map of domain → handle for the calling thread.
+ */
+inline auto &thread_handle_map() {
+  thread_local std::unordered_map<HazardDomain *,
+                                  std::unique_ptr<ThreadHazardHandle>>
+      handles;
+  return handles;
+}
+
+/**
  * @brief Returns the calling thread's handle for a domain.
  *
  * Handles are keyed by domain address so one thread may use multiple domains.
@@ -557,17 +619,22 @@ private:
  */
 inline ThreadHazardHandle &
 thread_handle(HazardDomain &domain = default_domain()) {
-  thread_local std::unordered_map<HazardDomain *,
-                                  std::unique_ptr<ThreadHazardHandle>>
-      handles;
-
-  if (auto it = handles.find(&domain); it != handles.end())
+  auto &handles = thread_handle_map();
+  if (auto it = handles.find(&domain); it != handles.end() && it->second)
     return *it->second;
 
   auto [it, inserted] =
       handles.emplace(&domain, std::make_unique<ThreadHazardHandle>(domain));
   (void)inserted;
   return *it->second;
+}
+
+/**
+ * @brief Destroys this thread's handle for domain (required before destroying a
+ *        non-static domain).
+ */
+inline void release_thread_handle(HazardDomain &domain) {
+  thread_handle_map().erase(&domain);
 }
 
 template <typename T> void HazardDomain::retire(T *ptr) {
