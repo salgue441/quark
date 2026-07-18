@@ -1,10 +1,10 @@
 /**
- * @file quark/error.hpp
+ * @file core/error.hpp
  * @brief Error handling utilities for lock-free data structures.
  *
  * This header provides a comprehensive error handling system based on
- * std::excepted. It defines error codes, rich error information structures,
- * and convenient Result type aliases along with factory function for
+ * std::expected. It defines error codes, rich error information structures,
+ * and convenient Result type aliases along with factory functions for
  * creating successful and erroneous results.
  *
  * The error handling follows a functional programming style, similar to
@@ -16,7 +16,7 @@
  *
  * @example
  * @code
- * #include <quark/error.hpp>
+ * #include <quark/core/error.hpp>
  *
  * quark::Result<int> divide(int a, int b) {
  *     if (b == 0) {
@@ -40,7 +40,9 @@
 
 #include <expected>
 #include <string>
-#include <system_error>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace quark {
 
@@ -189,17 +191,17 @@ inline auto Ok() { return VoidResult{}; }
 /**
  * @brief Creates an error Result with the given error code.
  *
- * @tparam T The success type of the Result (deduced for non-void, or
- *           specified for void)
+ * @tparam T The success type of the Result. Defaults to void (VoidResult).
+ *           Specify explicitly for non-void results (e.g. `Err<int>(...)`).
  * @param code The error code
  * @return A Result containing the error
  *
  * @code
- * // For non-void results, type is deduced
- * auto result = quark::Err(quark::Error::QueueEmpty);
+ * // Non-void: specify the success type
+ * auto result = quark::Err<int>(quark::Error::QueueEmpty);
  *
- * // For void results, template argument must be specified
- * auto result = quark::Err<void>(quark::Error::QueueEmpty);
+ * // Void: default template argument is fine
+ * auto result = quark::Err(quark::Error::QueueEmpty);
  * @endcode
  */
 template <typename T = void> auto Err(Error code) {
@@ -212,18 +214,18 @@ template <typename T = void> auto Err(Error code) {
 /**
  * @brief Creates an error Result with the given error code and custom message.
  *
- * @tparam T The success type of the Result (deduced for non-void, or specified
- * for void)
+ * @tparam T The success type of the Result. Defaults to void (VoidResult).
+ *           Specify explicitly for non-void results (e.g. `Err<int>(...)`).
  * @param code The error code
  * @param msg The custom error message
  * @return A Result containing the error
  *
  * @code
- * // For non-void results, type is deduced
- * auto result = quark::Err(quark::Error::InvalidArgument, "Invalid index");
+ * // Non-void: specify the success type
+ * auto result = quark::Err<int>(quark::Error::InvalidArgument, "Invalid index");
  *
- * // For void results, template argument must be specified
- * auto result = quark::Err<void>(quark::Error::Timeout, "Operation timed out");
+ * // Void: default template argument is fine
+ * auto result = quark::Err(quark::Error::Timeout, "Operation timed out");
  * @endcode
  */
 template <typename T = void> auto Err(Error code, std::string msg) {

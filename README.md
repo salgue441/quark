@@ -37,11 +37,15 @@ Built to demonstrate production-grade systems engineering: atomic memory orderin
 
 ## Data Structures
 
+Planned public containers (not yet in-tree):
+
 | Structure | Producers | Consumers | ABA-safe | Notes |
 |---|---|---|---|---|
-| `Quark::SpscQueue<T>` | 1 | 1 | N/A | Ring buffer; highest throughput |
-| `Quark::MsQueue<T>` | N | N | ✅ | Michael-Scott queue (1996) |
-| `Quark::LfHashMap<K,V>` | N | N | ✅ | Fixed-size open-addressing |
+| `quark::SpscQueue<T>` | 1 | 1 | N/A | Ring buffer; highest throughput |
+| `quark::MsQueue<T>` | N | N | ✅ | Michael-Scott queue (1996) |
+| `quark::LfHashMap<K,V>` | N | N | ✅ | Fixed-size open-addressing |
+
+Currently available: tagged pointers, hazard-pointer reclamation, `Result`/`Error`, logging, cache alignment, and timing helpers.
 
 ---
 
@@ -50,9 +54,9 @@ Built to demonstrate production-grade systems engineering: atomic memory orderin
 ```mermaid
 graph TB
     subgraph Public API
-        SPSC["SpscQueue&lt;T&gt;<br/><i>SPSC · ring buffer</i>"]
-        MSQ["MsQueue&lt;T&gt;<br/><i>MPMC · linked list</i>"]
-        HM["LfHashMap&lt;K,V&gt;<br/><i>MPMC · open addressing</i>"]
+        SPSC["SpscQueue&lt;T&gt;<br/><i>SPSC · ring buffer · planned</i>"]
+        MSQ["MsQueue&lt;T&gt;<br/><i>MPMC · linked list · planned</i>"]
+        HM["LfHashMap&lt;K,V&gt;<br/><i>MPMC · open addressing · planned</i>"]
     end
 
     subgraph Memory Safety
@@ -136,29 +140,19 @@ flowchart LR
 ## Quick Start
 
 ```cpp
-#include <Quark/ms_queue.hpp>
-#include <Quark/log.hpp>
+#include <quark/util/log.hpp>
+#include <quark/core/error.hpp>
 
 int main() {
-    // Set up logging
-    using namespace Quark::log;
+    using namespace quark::log;
     Logger::instance().add_sink(std::make_shared<ConsoleSink>(/*color=*/true));
     Logger::instance().set_level(Level::Debug);
 
-    // Create a lock-free queue
-    Quark::MsQueue<int> queue;
-
-    // Push — returns Result<void>
-    if (auto r = queue.push(42); !r) {
-        LF_ERROR("Push failed: {}", r.error().message);
-    }
-
-    // Pop — returns Result<int>
-    auto result = queue.pop();
-    if (result) {
-        LF_INFO("Popped: {}", *result);
-    } else if (result.error().code == Quark::Error::QueueEmpty) {
-        LF_DEBUG("Queue was empty");
+    quark::Result<int> value = quark::Ok(42);
+    if (value) {
+        QUARK_INFO("Got: {}", *value);
+    } else {
+        QUARK_ERROR("Failed: {}", value.error().message);
     }
 }
 ```
@@ -170,21 +164,21 @@ int main() {
 Quark uses `std::expected` (C++23) throughout — no exceptions, no error codes, no nulls.
 
 ```cpp
-// Result<T> = std::expected<T, Quark::ErrorInfo>
-Quark::Result<int> val = queue.pop();
+// Result<T> = std::expected<T, quark::ErrorInfo>
+quark::Result<int> val = /* ... */;
 
 // Pattern 1 — early return
-if (!val) return Quark::Err<int>(val.error().code);
+if (!val) return quark::Err<int>(val.error().code);
 
 // Pattern 2 — monadic chaining (C++23)
-auto doubled = queue.pop()
+auto doubled = val
     .transform([](int x) { return x * 2; })
     .value_or(0);
 
 // Pattern 3 — exhaustive check
 switch (val.error().code) {
-    case Quark::Error::QueueEmpty:      /* ... */ break;
-    case Quark::Error::AllocationFailed: /* ... */ break;
+    case quark::Error::QueueEmpty:       /* ... */ break;
+    case quark::Error::AllocationFailed: /* ... */ break;
     default: break;
 }
 ```
@@ -194,27 +188,23 @@ switch (val.error().code) {
 ## Project Structure
 
 ```
-Quark/
-├── include/Quark/
-│   ├── error.hpp           # Result<T>, Error enum, Ok/Err helpers
-│   ├── log.hpp             # Logger, ConsoleSink, FileSink (rotating)
-│   ├── arch.hpp            # CacheAligned<T>, CACHE_LINE constant
-│   ├── bench.hpp           # ScopedTimer, LF_TIMED macro
-│   ├── config.hpp          # Compile-time feature flags
-│   ├── tagged_ptr.hpp      # ABA-safe pointer wrapper
-│   ├── hazard_pointer.hpp  # Memory reclamation
-│   ├── spsc_queue.hpp      # Single-producer single-consumer ring buffer
-│   ├── ms_queue.hpp        # Michael-Scott MPMC queue
-│   └── lf_hashmap.hpp      # Lock-free open-addressing hash map
-├── bench/
-│   └── bench_main.cpp      # Google Benchmark harness
+quark/
+├── include/quark/
+│   ├── quark.hpp                 # Umbrella include
+│   ├── core/
+│   │   ├── version.hpp           # QUARK_VERSION_* / Version
+│   │   ├── types.hpp             # Core hub (config + error + arch)
+│   │   ├── config.hpp            # Compile-time feature flags
+│   │   ├── error.hpp             # Result<T>, Error, Ok/Err
+│   │   └── arch.hpp              # CACHE_LINE, CacheAligned<T>
+│   ├── memory/
+│   │   ├── tagged_ptr.hpp        # ABA-safe pointer wrapper
+│   │   └── hazard_ptr.hpp        # Hazard-pointer reclamation
+│   └── util/
+│       ├── log.hpp               # Logger, ConsoleSink, FileSink
+│       └── bench.hpp             # ScopedTimer, QUARK_TIMED
 ├── tests/
-│   ├── test_spsc.cpp
-│   ├── test_ms_queue.cpp
-│   ├── test_lf_hashmap.cpp
-│   └── stress_test.cpp     # Randomized concurrent torture test
-├── docs/
-│   └── DESIGN.md           # Tradeoff analysis — memory orderings, ABA, reclamation
+│   └── test_memory_safety.cpp
 ├── CMakeLists.txt
 └── README.md
 ```
@@ -226,32 +216,32 @@ Quark/
 **Requirements:** GCC 13+ or Clang 17+, CMake 3.25+
 
 ```bash
-git clone https://github.com/youruser/Quark.git
-cd Quark
+git clone https://github.com/youruser/quark.git
+cd quark
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
 # Run tests
 ctest --test-dir build --output-on-failure
 
-# Run benchmarks
-./build/bench/Quark_bench
+# Run benchmarks (when enabled)
+./build/bench/quark_bench
 ```
 
 **Optional flags:**
 
 | Flag | Default | Description |
 |---|---|---|
-| `-DQuark_LOGGING=ON` | `ON` | Enable structured logging |
-| `-DQuark_BUILD_TESTS=ON` | `ON` | Build test suite |
-| `-DQuark_BUILD_BENCH=OFF` | `OFF` | Build Google Benchmark harness |
-| `-DQuark_SANITIZE=OFF` | `OFF` | Enable ThreadSanitizer + AddressSanitizer |
+| `-DQUARK_LOGGING=ON` | `ON` | Enable structured logging |
+| `-DQUARK_BUILD_TESTS=ON` | `ON` | Build test suite |
+| `-DQUARK_BUILD_BENCH=OFF` | `OFF` | Build Google Benchmark harness |
+| `-DQUARK_SANITIZER=` | empty | `address`, `thread`, or `undefined` |
 
 ---
 
 ## Design Notes
 
-Full tradeoff analysis in [`docs/DESIGN.md`](docs/DESIGN.md). Topics covered:
+Full tradeoff analysis will live in [`docs/DESIGN.md`](docs/DESIGN.md). Topics covered:
 
 - Why `acquire`/`release` instead of `seq_cst` in the hot path
 - ABA problem: why tagged pointers were chosen over epoch-based reclamation

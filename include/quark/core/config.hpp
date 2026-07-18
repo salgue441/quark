@@ -1,5 +1,5 @@
 /**
- * @file config.hpp
+ * @file core/config.hpp
  * @brief Global configuration settings for the lock-free library.
  *
  * This header defines compile-time configuration constants that control
@@ -18,17 +18,17 @@
  *
  * @example
  * @code
- * #include <lf/config.hpp>
+ * #include <quark/core/config.hpp>
  *
  * void example() {
- *     if constexpr (lf::Config::debug_checks) {
+ *     if constexpr (quark::Config::debug_checks) {
  *         // Perform expensive validation only in debug builds
  *         validate_invariants();
  *     }
  *
- *     if constexpr (lf::Config::logging_enabled) {
+ *     if constexpr (quark::Config::logging_enabled) {
  *         // Log operations for monitoring
- *         LF_INFO("Operation completed successfully");
+ *         QUARK_INFO("Operation completed successfully");
  *     }
  * }
  * @endcode
@@ -36,7 +36,7 @@
 
 #pragma once
 
-namespace lf {
+namespace quark {
 
 /**
  * @brief Compile-time configuration settings for the library.
@@ -48,7 +48,7 @@ namespace lf {
  *
  * The configuration can be customized by defining preprocessor macros
  * before including this header:
- * - `LF_LOGGING_ENABLED`: Set to 0 to disable logging, 1 to enable it
+ * - `QUARK_LOGGING_ENABLED`: Set to 0 to disable logging, 1 to enable it
  * - `NDEBUG`: Standard macro; when defined, debug checks are disabled
  *
  * @note All members are `static constexpr`, so they can be used in
@@ -59,15 +59,15 @@ struct Config {
   /**
    * @brief Whether logging is enabled.
    *
-   * When true, logging macros (LF_TRACE, LF_DEBUG, LF_INFO, etc.) will
+   * When true, logging macros (QUARK_TRACE, QUARK_DEBUG, QUARK_INFO, etc.) will
    * produce output. When false, logging calls may be optimized away by
    * the compiler.
    *
-   * The default is true. To disable logging, define `LF_LOGGING_ENABLED`
+   * The default is true. To disable logging, define `QUARK_LOGGING_ENABLED`
    * as 0:
    * @code
-   * #define LF_LOGGING_ENABLED 0
-   * #include <lf/config.hpp>
+   * #define QUARK_LOGGING_ENABLED 0
+   * #include <quark/core/config.hpp>
    * @endcode
    *
    * @note Even when logging is enabled, the actual log level can be
@@ -75,10 +75,10 @@ struct Config {
    *
    * @see Logger::set_level()
    */
-#ifndef LF_LOGGING_ENABLED
+#ifndef QUARK_LOGGING_ENABLED
   static constexpr bool logging_enabled = true;
 #else
-  static constexpr bool logging_enabled = (LF_LOGGING_ENABLED != 0);
+  static constexpr bool logging_enabled = (QUARK_LOGGING_ENABLED != 0);
 #endif
 
   /**
@@ -96,11 +96,11 @@ struct Config {
    * @code
    * // Debug build: checks enabled
    * #undef NDEBUG
-   * #include <lf/config.hpp>
+   * #include <quark/core/config.hpp>
    *
    * // Release build: checks disabled
    * #define NDEBUG
-   * #include <lf/config.hpp>
+   * #include <quark/core/config.hpp>
    * @endcode
    *
    * @note Debug checks may include invariants, boundary checks,
@@ -114,4 +114,4 @@ struct Config {
 #endif
 };
 
-} // namespace lf
+} // namespace quark

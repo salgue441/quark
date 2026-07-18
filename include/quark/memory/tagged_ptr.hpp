@@ -1,5 +1,5 @@
 /**
- * @file tagged_ptr.hpp
+ * @file memory/tagged_ptr.hpp
  * @brief ABA-safe tagged pointer implementation for lock-free data structures.
  *
  * This header provides a tagged pointer implementation that solves the ABA
@@ -29,7 +29,7 @@
  *
  * @example
  * @code
- * #include <quark/tagged_ptr.hpp>
+ * #include <quark/memory/tagged_ptr.hpp>
  *
  * // Node in a lock-free stack
  * struct Node {
@@ -51,6 +51,13 @@
  * }
  * @endcode
  */
+
+#pragma once
+
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <type_traits>
 
 namespace quark {
 /**
@@ -345,7 +352,8 @@ public:
   bool
   compare_exchange_weak(TaggedPtr<T> &expected, TaggedPtr<T> desired,
                         std::memory_order success = std::memory_order_seq_cst,
-                        std::memory_order failure = std::memory_order_acquire) {
+                        std::memory_order failure = std::memory_order_acquire)
+      noexcept {
     return m_atomic.compare_exchange_weak(expected, desired, success, failure);
   }
 
@@ -358,6 +366,10 @@ private:
    * Verifies that TaggedPtr is 64-bit and trivially copyable, which is
    * required for std::atomic to be lock-free.
    */
+  static_assert(sizeof(TaggedPtr<T>) == sizeof(std::uint64_t),
+                "TaggedPtr must pack into 64 bits");
+  static_assert(std::is_trivially_copyable_v<TaggedPtr<T>>,
+                "TaggedPtr must be trivially copyable for std::atomic");
   static_assert(std::atomic<TaggedPtr<T>>::is_always_lock_free,
                 "std::atomic<TaggedPtr<T>> is not lock-free on this platform. "
                 "TaggedPtr must be 64-bit (trivially copyable, sizeof == 8.)");

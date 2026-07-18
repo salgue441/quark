@@ -1,11 +1,11 @@
 // tests/test_memory_safety.cpp
 //
-// Unit + stress tests for tagged_ptr.hpp and hazard_pointer.hpp.
-// Build with: g++ -std=c++23 -O2 -fsanitize=thread,address test_memory_safety.cpp -o test_memory_safety
-// Or via CMake with -Dquark_SANITIZE=ON
+// Unit + stress tests for memory/tagged_ptr.hpp and memory/hazard_ptr.hpp.
+// Build with: g++ -std=c++23 -O2 -fsanitize=thread,address -I include tests/test_memory_safety.cpp -o test_memory_safety
+// Or via CMake with -DQUARK_SANITIZE=ON
 
-#include "tagged_ptr.hpp"
-#include "hazard_pointer.hpp"
+#include <quark/memory/tagged_ptr.hpp>
+#include <quark/memory/hazard_ptr.hpp>
  
 #include <atomic>
 #include <cassert>

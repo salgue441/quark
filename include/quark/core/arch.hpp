@@ -1,5 +1,5 @@
 /**
- * @file cache.hpp
+ * @file core/arch.hpp
  * @brief Cache-aware utilities for performance optimization.
  *
  * This header provides utilities for cache-line alignment and padding to
@@ -18,10 +18,10 @@
  *
  * @example
  * @code
- * #include <quark/cache.hpp>
+ * #include <quark/core/arch.hpp>
  *
  * // A counter that will be accessed by multiple threads
- * struct alignas(CACHE_LINE) ThreadLocalCounter {
+ * struct alignas(quark::CACHE_LINE) ThreadLocalCounter {
  *     std::atomic<std::size_t> value;
  * };
  *
@@ -35,6 +35,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <new>
 
@@ -64,6 +65,15 @@ inline constexpr std::size_t CACHE_LINE =
 #endif
 
 /**
+ * @brief Bytes of padding needed so sizeof(T) + pad is a multiple of CACHE_LINE.
+ *
+ * When sizeof(T) is already a multiple of CACHE_LINE, the result is 0.
+ */
+template <typename T>
+inline constexpr std::size_t cache_pad_size =
+    (CACHE_LINE - sizeof(T) % CACHE_LINE) % CACHE_LINE;
+
+/**
  * @brief A wrapper that ensures a value is aligned to a cache line boundary.
  *
  * This template wraps a value of type T and pads it so that the entire
@@ -73,7 +83,7 @@ inline constexpr std::size_t CACHE_LINE =
  *
  * The padding is calculated as:
  * @code
- * CACHE_LINE - (sizeof(T) % CACHE_LINE)
+ * (CACHE_LINE - sizeof(T) % CACHE_LINE) % CACHE_LINE
  * @endcode
  * If sizeof(T) is already a multiple of CACHE_LINE, the padding size is 0.
  *
@@ -81,7 +91,7 @@ inline constexpr std::size_t CACHE_LINE =
  *
  * @code
  * // Array of counters, each on a separate cache line
- * lf::CacheAligned<std::atomic<size_t>> counters[4];
+ * quark::CacheAligned<std::atomic<size_t>> counters[4];
  *
  * // Access counter for thread 0
  * counters[0].value.fetch_add(1);
@@ -98,29 +108,23 @@ inline constexpr std::size_t CACHE_LINE =
  */
 template <typename T>
 struct alignas(CACHE_LINE) CacheAligned {
-    /**
-     * @brief The wrapped value.
-     *
-     * This is the actual data that benefits from cache line alignment.
-     */
-    T value;
+  /**
+   * @brief The wrapped value.
+   *
+   * This is the actual data that benefits from cache line alignment.
+   */
+  T value;
 
-    /**
-     * @brief Padding bytes to fill the remainder of the cache line.
-     *
-     * This array ensures that the total size of the structure is an exact
-     * multiple of CACHE_LINE. The padding is calculated automatically by
-     * the compiler based on the alignment requirement.
-     *
-     * The actual size of this array is:
-     * @code
-     * CACHE_LINE - (sizeof(T) % CACHE_LINE)
-     * @endcode
-     *
-     * @note If sizeof(T) is exactly a multiple of CACHE_LINE, the size of
-     *       this array will be 0 (zero-length array).
-     */
-    char m_pad[CACHE_LINE - sizeof(T) % CACHE_LINE];
+  /**
+   * @brief Padding bytes to fill the remainder of the cache line.
+   *
+   * Empty when sizeof(T) is already a multiple of CACHE_LINE
+   * (`std::array<char, 0>` is well-formed, unlike a C zero-length array).
+   */
+  [[no_unique_address]] std::array<char, cache_pad_size<T>> m_pad{};
 };
 
-} // namespace lf
+static_assert(alignof(CacheAligned<std::byte>) == CACHE_LINE);
+static_assert(sizeof(CacheAligned<std::byte>) % CACHE_LINE == 0);
+
+} // namespace quark

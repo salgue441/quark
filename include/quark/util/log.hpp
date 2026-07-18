@@ -1,5 +1,5 @@
 /**
- * @file logger.hpp
+ * @file util/log.hpp
  * @brief Thread-safe logging system with configurable sinks and log levels.
  *
  * This header provides a comprehensive logging framework with support for
@@ -17,7 +17,7 @@
  *
  * @example
  * @code
- * #include <quark/logger.hpp>
+ * #include <quark/util/log.hpp>
  *
  * void example() {
  *     // Configure logging
@@ -26,9 +26,9 @@
  *     quark::log::Logger::instance().set_level(quark::log::Level::Debug);
  *
  *     // Using macros
- *     quark_INFO("Application started");
- *     quark_DEBUG("Processing item {}", item_id);
- *     quark_ERROR("Failed to process: {}", error_message);
+ *     QUARK_INFO("Application started");
+ *     QUARK_DEBUG("Processing item {}", item_id);
+ *     QUARK_ERROR("Failed to process: {}", error_message);
  *
  *     // Using direct logging
  *     quark::log::Logger::instance().log(
@@ -43,9 +43,12 @@
 
 #pragma once
 
+#include <quark/core/config.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -55,6 +58,7 @@
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace quark::log {
@@ -134,6 +138,12 @@ constexpr std::string_view level_color(Level level) {
 /// @brief ANSI color reset sequence.
 constexpr std::string_view COLOR_RESET = "\033[0m";
 
+[[nodiscard]] constexpr std::string_view
+basename_view(std::string_view path) noexcept {
+  const auto pos = path.find_last_of("/\\");
+  return pos == std::string_view::npos ? path : path.substr(pos + 1);
+}
+
 /**
  * @brief Represents a single log record.
  *
@@ -203,7 +213,7 @@ public:
     auto msg = format(record);
     std::lock_guard lock(m_mutex);
 
-    m_stream << msg << std::endl;
+    m_stream << msg << '\n';
   }
 
   /**
@@ -212,7 +222,7 @@ public:
    * Forces any buffered output to be written.
    */
   void flush() override {
-    std::lock_guard(m_mutex);
+    std::lock_guard lock(m_mutex);
     m_stream.flush();
   }
 
@@ -225,11 +235,8 @@ private:
    */
   std::string format(const Record &record) {
     auto ts = format_timestamp(record.timestamp);
-    auto loc = std::format(
-        "{}:{}",
-        std::string_view(record.location.file_name())
-            .substr(std::string_view(record.location.file_name()).rfind(/) + 1),
-        record.location.line());
+    auto loc = std::format("{}:{}", basename_view(record.location.file_name()),
+                           record.location.line());
 
     if (m_use_color) {
       return std::format("{}[{}] [{}] [{}]{} {}", level_color(record.level), ts,
@@ -251,7 +258,7 @@ private:
   format_timestamp(const std::chrono::system_clock::time_point &timestamp) {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                   timestamp.time_since_epoch()) %
-              100;
+              1000;
 
     auto t = std::chrono::system_clock::to_time_t(timestamp);
     std::tm tm{};
@@ -299,6 +306,17 @@ public:
   explicit FileSink(Config config) : m_config(std::move(config)) {
     open_file();
   }
+
+  ~FileSink() override {
+    std::lock_guard lock(m_mutex);
+    if (m_file.is_open()) {
+      m_file.flush();
+      m_file.close();
+    }
+  }
+
+  FileSink(const FileSink &) = delete;
+  FileSink &operator=(const FileSink &) = delete;
 
   /**
    * @brief Emits a log record to the file.
@@ -376,7 +394,7 @@ private:
   format_timestamp(const std::chrono::system_clock::time_point &timestamp) {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                   timestamp.time_since_epoch()) %
-              100;
+              1000;
 
     auto t = std::chrono::system_clock::to_time_t(timestamp);
     std::tm tm{};
@@ -453,8 +471,9 @@ public:
    */
   template <typename... Args>
   void log(Level level, std::source_location location,
-           std::format_strings<Args...> fmt, Arg &&...args) {
-    if (level < m_min_level.load(std::memory_order_relaxed))
+           std::format_string<Args...> fmt, Args &&...args) {
+    if (level != Level::Fatal &&
+        level < m_min_level.load(std::memory_order_relaxed))
       return;
 
     Record record{
@@ -483,21 +502,32 @@ private:
   std::mutex m_mutex;                          ///< Mutex for sink access
 };
 
+} // namespace quark::log
+
 /**
  * @brief Log macro that takes an explicit level.
+ *
+ * Compile-time gated by `quark::Config::logging_enabled`. Fatal messages
+ * always run so the process still aborts when logging is disabled.
  *
  * @param level The log level (e.g., Info, Debug, Error)
  * @param fmt The format string
  * @param ... The format arguments
  *
  * @code
- * quark_LOG(Info, "User {} logged in", username);
+ * QUARK_LOG(Info, "User {} logged in", username);
  * @endcode
  */
-#define QUARK_LOG(level, fmt, ...)                                                \
-  ::quark::log::Logger::instance().log(::quark::log::Level::level,                   \
-                                    std::source_location::current(),           \
-                                    fmt __VA_OPT__(, ) __VA_ARGS__)
+#define QUARK_LOG(level, fmt, ...)                                             \
+  do {                                                                         \
+    if constexpr (::quark::Config::logging_enabled ||                          \
+                  (::quark::log::Level::level ==                               \
+                   ::quark::log::Level::Fatal)) {                              \
+      ::quark::log::Logger::instance().log(                                    \
+          ::quark::log::Level::level, std::source_location::current(),         \
+          fmt __VA_OPT__(, ) __VA_ARGS__);                                     \
+    }                                                                          \
+  } while (0)
 
 /**
  * @brief Logs a TRACE level message.
@@ -506,10 +536,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * quark_TRACE("Entering function {}", function_name);
+ * QUARK_TRACE("Entering function {}", function_name);
  * @endcode
  */
-#define QUARK_TRACE(fmt, ...) quark_LOG(Trace, fmt, ##__VA_ARGS__)
+#define QUARK_TRACE(fmt, ...) QUARK_LOG(Trace, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs a DEBUG level message.
@@ -518,10 +548,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * quark_DEBUG("Variable value: {}", value);
+ * QUARK_DEBUG("Variable value: {}", value);
  * @endcode
  */
-#define QUARK_DEBUG(fmt, ...) quark_LOG(Debug, fmt, ##__VA_ARGS__)
+#define QUARK_DEBUG(fmt, ...) QUARK_LOG(Debug, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs an INFO level message.
@@ -530,10 +560,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * quark_INFO("Application initialized successfully");
+ * QUARK_INFO("Application initialized successfully");
  * @endcode
  */
-#define QUARK_INFO(fmt, ...) quark_LOG(Info, fmt, ##__VA_ARGS__)
+#define QUARK_INFO(fmt, ...) QUARK_LOG(Info, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs a WARN level message.
@@ -542,10 +572,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * quark_WARN("Memory usage is high: {}%", usage);
+ * QUARK_WARN("Memory usage is high: {}%", usage);
  * @endcode
  */
-#define QUARK_WARN(fmt, ...) quark_LOG(Warn, fmt, ##__VA_ARGS__)
+#define QUARK_WARN(fmt, ...) QUARK_LOG(Warn, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs an ERROR level message.
@@ -554,10 +584,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * quark_ERROR("Failed to open file: {}", filename);
+ * QUARK_ERROR("Failed to open file: {}", filename);
  * @endcode
  */
-#define QUARK_ERROR(fmt, ...) quark_LOG(Error, fmt, ##__VA_ARGS__)
+#define QUARK_ERROR(fmt, ...) QUARK_LOG(Error, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs a FATAL level message and terminates the program.
@@ -568,8 +598,7 @@ private:
  * @param ... The format arguments
  *
  * @code
- * quark_FATAL("Critical system failure: {}", error);
+ * QUARK_FATAL("Critical system failure: {}", error);
  * @endcode
  */
-#define QUARK_FATAL(fmt, ...) quark_LOG(Fatal, fmt, ##__VA_ARGS__)
-} // namespace quark::log
+#define QUARK_FATAL(fmt, ...) QUARK_LOG(Fatal, fmt, ##__VA_ARGS__)
