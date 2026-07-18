@@ -1,0 +1,21 @@
+/**
+ * @file core/version.hpp
+ * @brief Library version identifiers for quark (generated from CMake).
+ */
+#pragma once
+
+#define QUARK_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define QUARK_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define QUARK_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define QUARK_VERSION_STRING "@PROJECT_VERSION@"
+
+namespace quark {
+
+struct Version {
+  static constexpr int major = QUARK_VERSION_MAJOR;
+  static constexpr int minor = QUARK_VERSION_MINOR;
+  static constexpr int patch = QUARK_VERSION_PATCH;
+  static constexpr const char *string = QUARK_VERSION_STRING;
+};
+
+} // namespace quark

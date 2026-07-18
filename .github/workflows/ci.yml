@@ -155,3 +155,72 @@ jobs:
         run: |
           cmake --build build --parallel
           ctest --test-dir build --output-on-failure --parallel
+
+  sanitize-tsan:
+    name: linux-tsan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++-13 ccache
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-tsan
+          max-size: 500M
+
+      - name: Configure
+        env:
+          CC: gcc-13
+          CXX: g++-13
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DQUARK_BUILD_TESTS=ON \
+            -DQUARK_SANITIZER=thread
+
+      - name: Build & test
+        run: |
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure --parallel
+
+  install-smoke:
+    name: install-smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++-13
+
+      - name: Build & install
+        env:
+          CC: gcc-13
+          CXX: g++-13
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQUARK_BUILD_TESTS=OFF
+          cmake --build build --parallel
+          cmake --install build --prefix "$PWD/prefix"
+
+      - name: Configure & run smoke consumer
+        env:
+          CC: gcc-13
+          CXX: g++-13
+        run: |
+          cmake -S tests/install_smoke -B smoke-build -G Ninja \
+            -DCMAKE_PREFIX_PATH="$PWD/prefix"
+          cmake --build smoke-build --parallel
+          ./smoke-build/smoke

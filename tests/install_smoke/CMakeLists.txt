@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.25)
+project(quark_install_smoke LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 23)
+find_package(quark REQUIRED CONFIG)
+add_executable(smoke main.cpp)
+target_link_libraries(smoke PRIVATE quark::quark)

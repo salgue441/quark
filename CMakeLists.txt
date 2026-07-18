@@ -7,6 +7,13 @@ project(
   LANGUAGES CXX
 )
 
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/quark/core")
+configure_file(
+  "${PROJECT_SOURCE_DIR}/include/quark/core/version.hpp.in"
+  "${CMAKE_BINARY_DIR}/include/quark/core/version.hpp"
+  @ONLY
+)
+
 # Prefer target properties over global CMAKE_CXX_STANDARD for consumers,
 # but keep these as a project default for our own targets.
 set(CMAKE_CXX_STANDARD 23)
@@ -80,6 +87,7 @@ target_compile_options(quark INTERFACE
 
 target_include_directories(quark INTERFACE
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -108,6 +116,12 @@ include(CMakePackageConfigHelpers)
 install(
   DIRECTORY "${PROJECT_SOURCE_DIR}/include/quark"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+  PATTERN "version.hpp.in" EXCLUDE
+)
+
+install(
+  FILES "${CMAKE_BINARY_DIR}/include/quark/core/version.hpp"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/quark/core"
 )
 
 install(
