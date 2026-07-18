@@ -1,0 +1,40 @@
+# Build trees
+/build/
+/build-*/
+/prefix/
+/smoke-build/
+/out/
+/cmake-build-*/
+
+# CMake / compile artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Local agent design/plan docs (not shipped)
+docs/superpowers/
+
+# Fuzz crash artifacts (corpus seeds are committed)
+fuzz-crash-*
