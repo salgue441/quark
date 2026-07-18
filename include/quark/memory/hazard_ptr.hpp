@@ -504,16 +504,19 @@ inline ThreadHazardHandle::ThreadHazardHandle(HazardDomain &domain)
 }
 
 inline ThreadHazardHandle::~ThreadHazardHandle() {
-  check_epoch();
-  // Flush while our slots may still publish protections, clear slots, then
-  // flush again so nodes we were protecting become reclaimable.
-  m_domain.scan(m_retire_list);
-  m_domain.release_record(m_record);
-  m_domain.scan(m_retire_list);
+  try {
+    check_epoch();
+    // Flush while our slots may still publish protections, clear slots, then
+    // flush again so nodes we were protecting become reclaimable.
+    m_domain.scan(m_retire_list);
+    m_domain.release_record(m_record);
+    m_domain.scan(m_retire_list);
 
-  // Survivors are still protected by other threads — hand off to the domain
-  // so a later scan (or domain destruction) can reclaim them.
-  m_domain.adopt_orphans(std::move(m_retire_list));
+    // Survivors are still protected by other threads — hand off to the domain
+    // so a later scan (or domain destruction) can reclaim them.
+    m_domain.adopt_orphans(std::move(m_retire_list));
+  } catch (...) { // NOLINT(bugprone-empty-catch) destructor must not throw
+  }
   m_domain.on_handle_released();
 }
 

@@ -75,12 +75,16 @@ public:
   /**
    * @brief Stops the timer and prints elapsed milliseconds to stdout.
    */
-  ~ScopedTimer() {
-    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now() - m_start)
-                        .count();
+  ~ScopedTimer() noexcept {
+    try {
+      const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                          std::chrono::steady_clock::now() - m_start)
+                          .count();
 
-    std::println("[timer] {}: {:.3f} ms", m_name, ns / 1'000'000.0);
+      std::println("[timer] {}: {:.3f} ms", m_name,
+                   static_cast<double>(ns) / 1'000'000.0);
+    } catch (...) { // NOLINT(bugprone-empty-catch) destructor must not throw
+    }
   }
 
 private:

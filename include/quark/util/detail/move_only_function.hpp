@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <memory>
 #include <new>
@@ -66,10 +67,10 @@ public:
   move_only_function(F &&f) {
     if constexpr (sizeof(T) <= buf_size && alignof(T) <= alignof(std::max_align_t)) {
       m_vt = local_vtable<T>();
-      ::new (static_cast<void *>(m_buf)) T(std::forward<F>(f));
+      ::new (static_cast<void *>(m_buf.data())) T(std::forward<F>(f));
     } else {
       m_vt = heap_vtable<T>();
-      auto **slot = reinterpret_cast<T **>(m_buf);
+      auto **slot = reinterpret_cast<T **>(m_buf.data());
       *slot = new T(std::forward<F>(f));
     }
   }
@@ -93,12 +94,12 @@ public:
 
   void operator()() {
     if (m_vt)
-      m_vt->invoke(m_buf);
+      m_vt->invoke(m_buf.data());
   }
 
   void reset() noexcept {
     if (m_vt) {
-      m_vt->destroy(m_buf);
+      m_vt->destroy(m_buf.data());
       m_vt = nullptr;
     }
   }
@@ -108,11 +109,11 @@ private:
     if (!other.m_vt)
       return;
     m_vt = other.m_vt;
-    other.m_vt->move(m_buf, other.m_buf);
+    other.m_vt->move(m_buf.data(), other.m_buf.data());
     other.m_vt = nullptr;
   }
 
-  alignas(std::max_align_t) unsigned char m_buf[buf_size]{};
+  alignas(std::max_align_t) std::array<unsigned char, buf_size> m_buf{};
   const vtable *m_vt = nullptr;
 };
 

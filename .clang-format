@@ -1,6 +1,7 @@
 ---
 Language: Cpp
-Standard: c++23
+# clang-format-17 does not accept Standard: c++23; Latest tracks the newest dialect.
+Standard: Latest
 
 # Indentation
 IndentWidth: 4

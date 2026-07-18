@@ -51,6 +51,8 @@ Quark is a **header-only** C++23 library for lock-free concurrent data structure
 
 ## Architecture
 
+Design rules for containers and memory orders: [docs/DESIGN.md](docs/DESIGN.md)
+
 ```mermaid
 graph TB
     subgraph Public API

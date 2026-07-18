@@ -19,12 +19,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang-17 cmake ninja-build
 
-      - name: Download corpus
-        uses: actions/download-artifact@v4
+      - name: Restore corpus cache
+        uses: actions/cache@v4
         with:
-          name: fuzz-corpus-hp_retire
           path: fuzz/corpus/hp_retire
-        continue-on-error: true
+          key: fuzz-corpus-hp_retire-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-hp_retire-
 
       - name: Configure & build
         env:
@@ -48,9 +49,10 @@ jobs:
           ./build/fuzz/fuzz_hp_retire fuzz/corpus/hp_retire \
             -max_total_time=$TIME -artifact_prefix=fuzz-crash-
 
-      - name: Upload corpus
+      - name: Upload corpus artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-corpus-hp_retire
           path: fuzz/corpus/hp_retire
+          if-no-files-found: warn

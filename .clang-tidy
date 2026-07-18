@@ -1,51 +1,55 @@
 # .clang-tidy
 #
-# Run manually:  clang-tidy include/helium/*.hpp -- -std=c++23
+# Run manually:  clang-tidy include/quark/**/*.hpp -p build
 # Run via CMake: cmake -DCMAKE_CXX_CLANG_TIDY="clang-tidy" ..
 
 Checks: >
   -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
+  -bugprone-branch-clone,
+  -bugprone-implicit-widening-of-multiplication-result,
   clang-analyzer-*,
   concurrency-*,
   cppcoreguidelines-*,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-member-init,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-special-member-functions,
+  -cppcoreguidelines-missing-std-forward,
   misc-*,
   -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  -misc-const-correctness,
+  -misc-unused-parameters,
   modernize-*,
   -modernize-use-trailing-return-type,
+  -modernize-macro-to-enum,
+  -modernize-use-emplace,
   performance-*,
+  -performance-unnecessary-value-param,
   portability-*,
   readability-*,
   -readability-magic-numbers,
-  -readability-identifier-length
+  -readability-identifier-length,
+  -readability-identifier-naming,
+  -readability-braces-around-statements,
+  -readability-uppercase-literal-suffix,
+  -readability-implicit-bool-conversion,
+  -readability-redundant-access-specifiers,
+  -readability-named-parameter,
+  -readability-convert-member-functions-to-static,
+  -readability-make-member-function-const
 
-WarningsAsErrors: ""
+WarningsAsErrors: "*"
 
-HeaderFilterRegex: "include/helium/.*"
+HeaderFilterRegex: "include/quark/.*"
 
 CheckOptions:
-  - key: readability-identifier-naming.NamespaceCase
-    value: lower_case
-  - key: readability-identifier-naming.ClassCase
-    value: CamelCase
-  - key: readability-identifier-naming.StructCase
-    value: CamelCase
-  - key: readability-identifier-naming.FunctionCase
-    value: lower_case
-  - key: readability-identifier-naming.VariableCase
-    value: lower_case
-  - key: readability-identifier-naming.ParameterCase
-    value: lower_case
-  - key: readability-identifier-naming.MemberCase
-    value: lower_case
-  - key: readability-identifier-naming.MemberSuffix
-    value: "_"
-  - key: readability-identifier-naming.ConstantCase
-    value: UPPER_CASE
-  - key: readability-identifier-naming.EnumConstantCase
-    value: CamelCase
   - key: modernize-use-default-member-init.UseAssignment
     value: "1"

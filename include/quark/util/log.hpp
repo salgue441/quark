@@ -141,7 +141,10 @@ constexpr std::string_view COLOR_RESET = "\033[0m";
 [[nodiscard]] constexpr std::string_view
 basename_view(std::string_view path) noexcept {
   const auto pos = path.find_last_of("/\\");
-  return pos == std::string_view::npos ? path : path.substr(pos + 1);
+  if (pos == std::string_view::npos) {
+    return path;
+  }
+  return std::string_view{path.data() + pos + 1, path.size() - pos - 1};
 }
 
 /**
@@ -308,10 +311,13 @@ public:
   }
 
   ~FileSink() override {
-    std::lock_guard lock(m_mutex);
-    if (m_file.is_open()) {
-      m_file.flush();
-      m_file.close();
+    try {
+      std::lock_guard lock(m_mutex);
+      if (m_file.is_open()) {
+        m_file.flush();
+        m_file.close();
+      }
+    } catch (...) { // NOLINT(bugprone-empty-catch) destructor must not throw
     }
   }
 
