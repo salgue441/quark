@@ -1,5 +1,5 @@
 /**
- * @file lf/error.hpp
+ * @file quark/error.hpp
  * @brief Error handling utilities for lock-free data structures.
  *
  * This header provides a comprehensive error handling system based on
@@ -16,13 +16,13 @@
  *
  * @example
  * @code
- * #include <lf/error.hpp>
+ * #include <quark/error.hpp>
  *
- * lf::Result<int> divide(int a, int b) {
+ * quark::Result<int> divide(int a, int b) {
  *     if (b == 0) {
- *         return lf::Err<int>(lf::Error::InvalidArgument, "Division by zero");
+ *         return quark::Err<int>(quark::Error::InvalidArgument, "Division by zero");
  *     }
- *     return lf::Ok(a / b);
+ *     return quark::Ok(a / b);
  * }
  *
  * void example() {
@@ -42,7 +42,7 @@
 #include <string>
 #include <system_error>
 
-namespace lf {
+namespace quark {
 
 /**
  * @brief Error codes for lock-free data structure operations.
@@ -68,7 +68,7 @@ enum class Error {
  * The struct is designed for convenience with implicit conversion from
  * Error enum values, allowing for concise error returns:
  * @code
- * return lf::Error::QueueFull;
+ * return quark::Error::QueueFull;
  * @endcode
  */
 struct ErrorInfo {
@@ -131,10 +131,10 @@ private:
  * @tparam T The type of the success value
  *
  * @code
- * lf::Result<int> divide(int a, int b) {
+ * quark::Result<int> divide(int a, int b) {
  *     if (b == 0)
- *         return lf::Err<int>(lf::Error::InvalidArgument, "Division by zero");
- *     return lf::Ok(a / b);
+ *         return quark::Err<int>(quark::Error::InvalidArgument, "Division by zero");
+ *     return quark::Ok(a / b);
  * }
  * @endcode
  */
@@ -147,11 +147,11 @@ template <typename T> using Result = std::expected<T, ErrorInfo>;
  * operations that either succeed (with no value) or fail with an error.
  *
  * @code
- * lf::VoidResult doSomething() {
+ * quark::VoidResult doSomething() {
  *     if (full())
- *          return lf::Err(lf::Error::QueueFull);
+ *          return quark::Err(quark::Error::QueueFull);
  *
- *     return lf::Ok();
+ *     return quark::Ok();
  * }
  * @endcode
  */
@@ -165,7 +165,7 @@ using VoidResult = std::expected<void, ErrorInfo>;
  * @return A Result containing the value
  *
  * @code
- * auto result = lf::Ok(42);
+ * auto result = quark::Ok(42);
  * @endcode
  */
 template <typename T> auto Ok(T &&val) {
@@ -178,9 +178,9 @@ template <typename T> auto Ok(T &&val) {
  * @return A VoidResult indicating success with no value
  *
  * @code
- * lf::VoidResult operation() {
+ * quark::VoidResult operation() {
  *     // ... do something that might fail
- *     return lf::Ok();
+ *     return quark::Ok();
  * }
  * @endcode
  */
@@ -196,10 +196,10 @@ inline auto Ok() { return VoidResult{}; }
  *
  * @code
  * // For non-void results, type is deduced
- * auto result = lf::Err(lf::Error::QueueEmpty);
+ * auto result = quark::Err(quark::Error::QueueEmpty);
  *
  * // For void results, template argument must be specified
- * auto result = lf::Err<void>(lf::Error::QueueEmpty);
+ * auto result = quark::Err<void>(quark::Error::QueueEmpty);
  * @endcode
  */
 template <typename T = void> auto Err(Error code) {
@@ -220,10 +220,10 @@ template <typename T = void> auto Err(Error code) {
  *
  * @code
  * // For non-void results, type is deduced
- * auto result = lf::Err(lf::Error::InvalidArgument, "Invalid index");
+ * auto result = quark::Err(quark::Error::InvalidArgument, "Invalid index");
  *
  * // For void results, template argument must be specified
- * auto result = lf::Err<void>(lf::Error::Timeout, "Operation timed out");
+ * auto result = quark::Err<void>(quark::Error::Timeout, "Operation timed out");
  * @endcode
  */
 template <typename T = void> auto Err(Error code, std::string msg) {
@@ -233,4 +233,4 @@ template <typename T = void> auto Err(Error code, std::string msg) {
     return Result<T>{std::unexpected{ErrorInfo{code, std::move(msg)}}};
 }
 
-} // namespace lf
+} // namespace quark

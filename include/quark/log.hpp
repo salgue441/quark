@@ -17,22 +17,22 @@
  *
  * @example
  * @code
- * #include <lf/logger.hpp>
+ * #include <quark/logger.hpp>
  *
  * void example() {
  *     // Configure logging
- *     auto console = std::make_shared<lf::log::ConsoleSink>();
- *     lf::log::Logger::instance().add_sink(console);
- *     lf::log::Logger::instance().set_level(lf::log::Level::Debug);
+ *     auto console = std::make_shared<quark::log::ConsoleSink>();
+ *     quark::log::Logger::instance().add_sink(console);
+ *     quark::log::Logger::instance().set_level(quark::log::Level::Debug);
  *
  *     // Using macros
- *     LF_INFO("Application started");
- *     LF_DEBUG("Processing item {}", item_id);
- *     LF_ERROR("Failed to process: {}", error_message);
+ *     quark_INFO("Application started");
+ *     quark_DEBUG("Processing item {}", item_id);
+ *     quark_ERROR("Failed to process: {}", error_message);
  *
  *     // Using direct logging
- *     lf::log::Logger::instance().log(
- *         lf::log::Level::Warn,
+ *     quark::log::Logger::instance().log(
+ *         quark::log::Level::Warn,
  *         std::source_location::current(),
  *         "Custom log message with value: {}",
  *         42
@@ -57,7 +57,7 @@
 #include <string_view>
 #include <vector>
 
-namespace lf::log {
+namespace quark::log {
 /**
  * @brief Log severity levels.
  *
@@ -491,11 +491,11 @@ private:
  * @param ... The format arguments
  *
  * @code
- * LF_LOG(Info, "User {} logged in", username);
+ * quark_LOG(Info, "User {} logged in", username);
  * @endcode
  */
-#define LF_LOG(level, fmt, ...)                                                \
-  ::lf::log::Logger::instance().log(::lf::log::Level::level,                   \
+#define QUARK_LOG(level, fmt, ...)                                                \
+  ::quark::log::Logger::instance().log(::quark::log::Level::level,                   \
                                     std::source_location::current(),           \
                                     fmt __VA_OPT__(, ) __VA_ARGS__)
 
@@ -506,10 +506,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * LF_TRACE("Entering function {}", function_name);
+ * quark_TRACE("Entering function {}", function_name);
  * @endcode
  */
-#define LF_TRACE(fmt, ...) LF_LOG(Trace, fmt, ##__VA_ARGS__)
+#define QUARK_TRACE(fmt, ...) quark_LOG(Trace, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs a DEBUG level message.
@@ -518,10 +518,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * LF_DEBUG("Variable value: {}", value);
+ * quark_DEBUG("Variable value: {}", value);
  * @endcode
  */
-#define LF_DEBUG(fmt, ...) LF_LOG(Debug, fmt, ##__VA_ARGS__)
+#define QUARK_DEBUG(fmt, ...) quark_LOG(Debug, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs an INFO level message.
@@ -530,10 +530,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * LF_INFO("Application initialized successfully");
+ * quark_INFO("Application initialized successfully");
  * @endcode
  */
-#define LF_INFO(fmt, ...) LF_LOG(Info, fmt, ##__VA_ARGS__)
+#define QUARK_INFO(fmt, ...) quark_LOG(Info, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs a WARN level message.
@@ -542,10 +542,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * LF_WARN("Memory usage is high: {}%", usage);
+ * quark_WARN("Memory usage is high: {}%", usage);
  * @endcode
  */
-#define LF_WARN(fmt, ...) LF_LOG(Warn, fmt, ##__VA_ARGS__)
+#define QUARK_WARN(fmt, ...) quark_LOG(Warn, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs an ERROR level message.
@@ -554,10 +554,10 @@ private:
  * @param ... The format arguments
  *
  * @code
- * LF_ERROR("Failed to open file: {}", filename);
+ * quark_ERROR("Failed to open file: {}", filename);
  * @endcode
  */
-#define LF_ERROR(fmt, ...) LF_LOG(Error, fmt, ##__VA_ARGS__)
+#define QUARK_ERROR(fmt, ...) quark_LOG(Error, fmt, ##__VA_ARGS__)
 
 /**
  * @brief Logs a FATAL level message and terminates the program.
@@ -568,8 +568,8 @@ private:
  * @param ... The format arguments
  *
  * @code
- * LF_FATAL("Critical system failure: {}", error);
+ * quark_FATAL("Critical system failure: {}", error);
  * @endcode
  */
-#define LF_FATAL(fmt, ...) LF_LOG(Fatal, fmt, ##__VA_ARGS__)
-} // namespace lf::log
+#define QUARK_FATAL(fmt, ...) quark_LOG(Fatal, fmt, ##__VA_ARGS__)
+} // namespace quark::log

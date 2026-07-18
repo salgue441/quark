@@ -18,7 +18,7 @@
  *
  * @example
  * @code
- * #include <lf/cache.hpp>
+ * #include <quark/cache.hpp>
  *
  * // A counter that will be accessed by multiple threads
  * struct alignas(CACHE_LINE) ThreadLocalCounter {
@@ -26,7 +26,7 @@
  * };
  *
  * // Using CacheAligned for automatic padding
- * lf::CacheAligned<std::atomic<std::size_t>> counters[4];
+ * quark::CacheAligned<std::atomic<std::size_t>> counters[4];
  *
  * // Each counter is guaranteed to be on its own cache line,
  * // preventing false sharing between threads.
@@ -38,7 +38,7 @@
 #include <cstddef>
 #include <new>
 
-namespace lf {
+namespace quark {
 
 /**
  * @brief The size of a CPU cache line in bytes.

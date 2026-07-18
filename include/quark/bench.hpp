@@ -20,7 +20,7 @@
  *
  * @example
  * @code
- * #include <lf/timer.hpp>
+ * #include <quark/timer.hpp>
  *
  * void benchmark() {
  *     // Using the macro
@@ -31,7 +31,7 @@
  *
  *     // Using the class directly
  *     {
- *         lf::ScopedTimer timer("explicit_timer");
+ *         quark::ScopedTimer timer("explicit_timer");
  *         // ... operations ...
  *     }
  * }
@@ -44,7 +44,7 @@
 #include <iostream>
 #include <string>
 
-namespace lf {
+namespace quark {
 
 /**
  * @brief RAII timer for measuring and logging execution time.
@@ -58,7 +58,7 @@ namespace lf {
  *
  * @code
  * {
- *      lf::ScopedTimer timer("expensive_operation");
+ *      quark::ScopedTimer timer("expensive_operation");
  *      // ... do expensive operation ...
  * } // Automatically logs: "[timer] expensive_operation: 42.123 ms"
  * @endcode
@@ -120,10 +120,10 @@ private:
  *
  * @code
  * // Single statement
- * LF_TIMED("single") expensive_function();
+ * QUARK_TIMED("single") expensive_function();
  *
  * // Block Scope
- * LF_TIMED("block") {
+ * QUARK_TIMED("block") {
  *  // ... do work ...
  * }
  * @endcode
@@ -135,5 +135,5 @@ private:
  *
  * @see ScopedTimer
  */
-#define LF_TIMED(name) if (lf::ScopedTimer _t{name}; true)
-} // namespace lf
+#define QUARK_TIMED(name) if (quark::ScopedTimer _t{name}; true)
+} // namespace quark
