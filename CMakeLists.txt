@@ -42,6 +42,7 @@ target_compile_options(quark_warnings INTERFACE
   >
   $<$<CXX_COMPILER_ID:MSVC>:
     /W4 /permissive-
+    /Zc:preprocessor
     /wd4324
   >
 )
@@ -71,6 +72,11 @@ add_library(quark INTERFACE)
 add_library(quark::quark ALIAS quark)
 
 target_compile_features(quark INTERFACE cxx_std_23)
+
+# Required for correct __VA_OPT__ expansion in logging macros under MSVC.
+target_compile_options(quark INTERFACE
+  $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>
+)
 
 target_include_directories(quark INTERFACE
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>

@@ -12,7 +12,7 @@
  * features:
  * - Per-(thread, domain) retire lists with automatic scanning when full
  * - Global slot table with per-thread hazard slots
- * - Type-erased node deletion via std::move_only_function
+ * - Type-erased node deletion via function-pointer reclaimers
  * - RAII guard for automatic slot management
  * - Cache-line aligned records to prevent false sharing
  * - Double-flush + orphan handoff on thread exit to avoid leaks / UAF
@@ -63,7 +63,6 @@
 #pragma once
 
 #include <quark/core/arch.hpp>
-#include <quark/util/log.hpp>
 
 #include <algorithm>
 #include <array>
@@ -71,16 +70,35 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
+#include <cstdio>
+#include <cstdlib>
+#include <format>
 #include <memory>
 #include <mutex>
-#include <ranges>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace quark {
+
+namespace detail {
+
+/**
+ * @brief Aborts after writing a fatal hazard-pointer diagnostic to stderr.
+ *
+ * Kept independent of the logging subsystem so reclamation stays usable on
+ * toolchains where `std::print` / logging macros are incomplete.
+ */
+[[noreturn]] inline void hazard_fatal(std::string_view message) noexcept {
+  std::fwrite(message.data(), 1, message.size(), stderr);
+  std::fputc('\n', stderr);
+  std::fflush(stderr);
+  std::abort();
+}
+
+} // namespace detail
 
 /**
  * @brief Number of hazard pointers reserved per thread.
@@ -130,15 +148,15 @@ struct alignas(CACHE_LINE) HazardRecord {
 };
 
 /**
- * @brief Type-erased retired pointer with a move-only deleter.
+ * @brief Type-erased retired pointer with a portable deleter.
  *
- * The deleter is invoked exactly once via @ref reclaim. Destroying a
- * `RetiredNode` without reclaiming does **not** free the pointer — callers
- * must reclaim, transfer ownership (orphans), or intentionally defer.
+ * Uses a function pointer instead of `std::move_only_function` /
+ * `std::function` so Apple Clang / older libc++ builds remain portable.
+ * The deleter is invoked exactly once via @ref reclaim.
  */
 struct RetiredNode {
-  void *ptr = nullptr; ///< Address pending reclamation
-  std::move_only_function<void()> deleter; ///< Type-erased `delete` functor
+  void *ptr = nullptr;                 ///< Address pending reclamation
+  void (*destroy)(void *) = nullptr; ///< Type-erased delete function
 
   RetiredNode() = default;
 
@@ -148,14 +166,31 @@ struct RetiredNode {
    * @param p Non-owning pointer that will be deleted on reclaim
    */
   template <typename T>
-  explicit RetiredNode(T *p)
-      : ptr(p), deleter([p] { delete p; }) {}
+  explicit RetiredNode(T *p) noexcept
+      : ptr(p), destroy(+[](void *q) noexcept { delete static_cast<T *>(q); }) {
+  }
 
-  RetiredNode(RetiredNode &&) noexcept = default;
-  RetiredNode &operator=(RetiredNode &&) noexcept = default;
+  RetiredNode(RetiredNode &&other) noexcept
+      : ptr(other.ptr), destroy(other.destroy) {
+    other.ptr = nullptr;
+    other.destroy = nullptr;
+  }
+
+  RetiredNode &operator=(RetiredNode &&other) noexcept {
+    if (this != &other) {
+      reclaim();
+      ptr = other.ptr;
+      destroy = other.destroy;
+      other.ptr = nullptr;
+      other.destroy = nullptr;
+    }
+    return *this;
+  }
 
   RetiredNode(const RetiredNode &) = delete;
   RetiredNode &operator=(const RetiredNode &) = delete;
+
+  ~RetiredNode() = default;
 
   /**
    * @brief Invokes the deleter once and clears the node.
@@ -163,10 +198,10 @@ struct RetiredNode {
    * Safe to call repeatedly; subsequent calls are no-ops.
    */
   void reclaim() noexcept {
-    if (deleter) {
-      deleter();
-      deleter = nullptr;
+    if (destroy != nullptr && ptr != nullptr) {
+      destroy(ptr);
       ptr = nullptr;
+      destroy = nullptr;
     }
   }
 };
@@ -213,7 +248,7 @@ public:
     if (ptr == nullptr)
       return;
 
-    m_retire_list.push_back(RetiredNode{ptr});
+    m_retire_list.push_back(RetiredNode(ptr));
     if (m_retire_list.size() >= MAX_RETIRE_COUNT)
       flush();
   }
@@ -250,8 +285,10 @@ public:
    */
   ~HazardDomain() {
     for (auto &rec : m_records) {
-      assert(!rec.in_use.load(std::memory_order_acquire) &&
+      const bool busy = rec.in_use.load(std::memory_order_acquire);
+      assert(!busy &&
              "HazardDomain destroyed while threads still hold records");
+      (void)busy;
     }
 
     std::vector<RetiredNode> leftover;
@@ -316,15 +353,23 @@ public:
     const auto freed_before = retire_list.size();
 
     for (auto &node : retire_list) {
-      if (std::ranges::contains(hazards, node.ptr)) {
+      bool hazardous = false;
+      for (void *h : hazards) {
+        if (h == node.ptr) {
+          hazardous = true;
+          break;
+        }
+      }
+
+      if (hazardous) {
         survivors.push_back(std::move(node));
       } else {
         node.reclaim();
       }
     }
 
-    QUARK_DEBUG("HazardDomain::scan - freed {}, deferred {}",
-                freed_before - survivors.size(), survivors.size());
+    const auto freed = freed_before - survivors.size();
+    (void)freed;
 
     retire_list = std::move(survivors);
   }
@@ -336,7 +381,7 @@ private:
   /**
    * @brief Claims an unused hazard record for the calling thread.
    * @return Pointer to the acquired record
-   * @warning Aborts via `QUARK_FATAL` if @ref MAX_THREADS is exhausted
+   * @warning Aborts if @ref MAX_THREADS is exhausted
    */
   HazardRecord *acquire_record() {
     for (auto &rec : m_records) {
@@ -350,8 +395,8 @@ private:
       }
     }
 
-    QUARK_FATAL("HazardDomain: MAX_THREADS ({}) exhausted", MAX_THREADS);
-    std::unreachable();
+    detail::hazard_fatal(
+        std::format("HazardDomain: MAX_THREADS ({}) exhausted", MAX_THREADS));
   }
 
   /**
@@ -489,10 +534,14 @@ thread_handle(HazardDomain &domain = default_domain()) {
   thread_local std::unordered_map<HazardDomain *,
                                   std::unique_ptr<ThreadHazardHandle>>
       handles;
-  auto &slot = handles[&domain];
-  if (!slot)
-    slot = std::make_unique<ThreadHazardHandle>(domain);
-  return *slot;
+
+  if (auto it = handles.find(&domain); it != handles.end())
+    return *it->second;
+
+  auto [it, inserted] =
+      handles.emplace(&domain, std::make_unique<ThreadHazardHandle>(domain));
+  (void)inserted;
+  return *it->second;
 }
 
 template <typename T> void HazardDomain::retire(T *ptr) {

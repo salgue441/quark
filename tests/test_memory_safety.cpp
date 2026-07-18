@@ -255,7 +255,6 @@ void stress_hazard_concurrent() {
  
     auto& domain = quark::default_domain();
  
-    std::atomic<int> freed{0};
     std::atomic<int> errors{0};
  
     struct StressNode {
@@ -288,7 +287,7 @@ void stress_hazard_concurrent() {
     std::vector<std::thread> threads;
     threads.reserve(THREADS);
     for (int i = 0; i < THREADS; ++i)
-        threads.emplace_back(worker);
+        threads.push_back(std::thread(worker));
     for (auto& t : threads) t.join();
  
     // Now retire the shared node — all guards are gone

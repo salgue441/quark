@@ -531,74 +531,36 @@ private:
 
 /**
  * @brief Logs a TRACE level message.
- *
- * @param fmt The format string
- * @param ... The format arguments
- *
- * @code
- * QUARK_TRACE("Entering function {}", function_name);
- * @endcode
+ * @see QUARK_LOG
  */
-#define QUARK_TRACE(fmt, ...) QUARK_LOG(Trace, fmt, ##__VA_ARGS__)
+#define QUARK_TRACE(fmt, ...) QUARK_LOG(Trace, fmt __VA_OPT__(, ) __VA_ARGS__)
 
 /**
  * @brief Logs a DEBUG level message.
- *
- * @param fmt The format string
- * @param ... The format arguments
- *
- * @code
- * QUARK_DEBUG("Variable value: {}", value);
- * @endcode
+ * @see QUARK_LOG
  */
-#define QUARK_DEBUG(fmt, ...) QUARK_LOG(Debug, fmt, ##__VA_ARGS__)
+#define QUARK_DEBUG(fmt, ...) QUARK_LOG(Debug, fmt __VA_OPT__(, ) __VA_ARGS__)
 
 /**
  * @brief Logs an INFO level message.
- *
- * @param fmt The format string
- * @param ... The format arguments
- *
- * @code
- * QUARK_INFO("Application initialized successfully");
- * @endcode
+ * @see QUARK_LOG
  */
-#define QUARK_INFO(fmt, ...) QUARK_LOG(Info, fmt, ##__VA_ARGS__)
+#define QUARK_INFO(fmt, ...) QUARK_LOG(Info, fmt __VA_OPT__(, ) __VA_ARGS__)
 
 /**
  * @brief Logs a WARN level message.
- *
- * @param fmt The format string
- * @param ... The format arguments
- *
- * @code
- * QUARK_WARN("Memory usage is high: {}%", usage);
- * @endcode
+ * @see QUARK_LOG
  */
-#define QUARK_WARN(fmt, ...) QUARK_LOG(Warn, fmt, ##__VA_ARGS__)
+#define QUARK_WARN(fmt, ...) QUARK_LOG(Warn, fmt __VA_OPT__(, ) __VA_ARGS__)
 
 /**
  * @brief Logs an ERROR level message.
- *
- * @param fmt The format string
- * @param ... The format arguments
- *
- * @code
- * QUARK_ERROR("Failed to open file: {}", filename);
- * @endcode
+ * @see QUARK_LOG
  */
-#define QUARK_ERROR(fmt, ...) QUARK_LOG(Error, fmt, ##__VA_ARGS__)
+#define QUARK_ERROR(fmt, ...) QUARK_LOG(Error, fmt __VA_OPT__(, ) __VA_ARGS__)
 
 /**
- * @brief Logs a FATAL level message and terminates the program.
- *
- * After logging, all sinks are flushed and std::abort() is called.
- *
- * @param fmt The format string
- * @param ... The format arguments
- *
- * @code
- * QUARK_FATAL("Critical system failure: {}", error);
- * @endcode
+ * @brief Logs a FATAL level message, flushes sinks, then aborts.
+ * @see QUARK_LOG
  */
-#define QUARK_FATAL(fmt, ...) QUARK_LOG(Fatal, fmt, ##__VA_ARGS__)
+#define QUARK_FATAL(fmt, ...) QUARK_LOG(Fatal, fmt __VA_OPT__(, ) __VA_ARGS__)
