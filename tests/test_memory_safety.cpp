@@ -208,6 +208,20 @@ void test_retire_then_scan_frees_safe_nodes() {
     CHECK(free_count.load() == 2);
 }
  
+void test_custom_reclaimer() {
+    SECTION("HazardDomain — custom reclaimer");
+
+    auto& domain = quark::default_domain();
+    int freed = 0;
+    auto *p = new int(7);
+    domain.retire(p, [&](int *q) {
+        ++freed;
+        delete q;
+    });
+    domain.flush();
+    CHECK(freed == 1);
+}
+
 void test_retire_defers_protected_node() {
     SECTION("HazardDomain — retire defers node while hazard guard holds it");
  
@@ -301,7 +315,7 @@ void stress_hazard_concurrent() {
  
 int main() {
     std::cout << "=== quark memory safety tests ===\n";
- 
+
     // TaggedPtr
     test_tagged_ptr_basic();
     test_tagged_ptr_null();
@@ -310,13 +324,14 @@ int main() {
     test_tagged_ptr_equality();
     test_atomic_tagged_ptr_cas();
     test_atomic_tagged_ptr_cas_aba_prevention();
- 
+
     // HazardPointer
     test_hazard_guard_protects();
     test_retire_then_scan_frees_safe_nodes();
+    test_custom_reclaimer();
     test_retire_defers_protected_node();
     stress_hazard_concurrent();
- 
+
     std::cout << std::format("\n{}/{} tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
 }

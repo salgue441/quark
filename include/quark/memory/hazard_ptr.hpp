@@ -12,7 +12,7 @@
  * features:
  * - Per-(thread, domain) retire lists with automatic scanning when full
  * - Global slot table with per-thread hazard slots
- * - Type-erased node deletion via function-pointer reclaimers
+ * - Type-erased node deletion via move_only_function reclaimers
  * - RAII guard for automatic slot management
  * - Cache-line aligned records to prevent false sharing
  * - Double-flush + orphan handoff on thread exit to avoid leaks / UAF
@@ -63,6 +63,7 @@
 #pragma once
 
 #include <quark/core/arch.hpp>
+#include <quark/util/detail/move_only_function.hpp>
 
 #include <algorithm>
 #include <array>
@@ -148,60 +149,41 @@ struct alignas(CACHE_LINE) HazardRecord {
 };
 
 /**
- * @brief Type-erased retired pointer with a portable deleter.
+ * @brief Type-erased retired pointer with a portable reclaimer.
  *
- * Uses a function pointer instead of `std::move_only_function` /
- * `std::function` so Apple Clang / older libc++ builds remain portable.
- * The deleter is invoked exactly once via @ref reclaim.
+ * Stores the raw address in @ref ptr for hazard scanning and a
+ * @ref quark::detail::move_only_function polyfill thunk invoked on reclaim.
+ * The reclaimer runs exactly once via @ref reclaim.
  */
 struct RetiredNode {
-  void *ptr = nullptr;                 ///< Address pending reclamation
-  void (*destroy)(void *) = nullptr; ///< Type-erased delete function
+  void *ptr = nullptr;                              ///< Address pending reclamation
+  detail::move_only_function<void()> reclaim_fn; ///< Reclaim thunk (polyfill)
 
   RetiredNode() = default;
 
   /**
-   * @brief Builds a retired node that deletes `p` with `delete`.
-   * @tparam T Dynamic type of the retired object
-   * @param p Non-owning pointer that will be deleted on reclaim
+   * @brief Builds a retired node with a scan address and reclaim thunk.
+   * @param p Non-owning pointer compared against hazard slots during scan
+   * @param fn Callable invoked exactly once when the node is reclaimed
    */
-  template <typename T>
-  explicit RetiredNode(T *p) noexcept
-      : ptr(p), destroy(+[](void *q) noexcept { delete static_cast<T *>(q); }) {
-  }
+  explicit RetiredNode(void *p, detail::move_only_function<void()> fn) noexcept
+      : ptr(p), reclaim_fn(std::move(fn)) {}
 
-  RetiredNode(RetiredNode &&other) noexcept
-      : ptr(other.ptr), destroy(other.destroy) {
-    other.ptr = nullptr;
-    other.destroy = nullptr;
-  }
-
-  RetiredNode &operator=(RetiredNode &&other) noexcept {
-    if (this != &other) {
-      reclaim();
-      ptr = other.ptr;
-      destroy = other.destroy;
-      other.ptr = nullptr;
-      other.destroy = nullptr;
-    }
-    return *this;
-  }
-
+  RetiredNode(RetiredNode &&) noexcept = default;
+  RetiredNode &operator=(RetiredNode &&) noexcept = default;
   RetiredNode(const RetiredNode &) = delete;
   RetiredNode &operator=(const RetiredNode &) = delete;
 
-  ~RetiredNode() = default;
-
   /**
-   * @brief Invokes the deleter once and clears the node.
+   * @brief Invokes the reclaimer once and clears the node.
    *
    * Safe to call repeatedly; subsequent calls are no-ops.
    */
   void reclaim() noexcept {
-    if (destroy != nullptr && ptr != nullptr) {
-      destroy(ptr);
+    if (reclaim_fn) {
+      reclaim_fn();
+      reclaim_fn.reset();
       ptr = nullptr;
-      destroy = nullptr;
     }
   }
 };
@@ -247,10 +229,23 @@ public:
   template <typename T> void retire(T *ptr) {
     if (ptr == nullptr)
       return;
+    retire_impl(ptr, [ptr] { delete ptr; });
+  }
 
-    m_retire_list.push_back(RetiredNode(ptr));
-    if (m_retire_list.size() >= MAX_RETIRE_COUNT)
-      flush();
+  /**
+   * @brief Queues `ptr` with a custom reclaimer on this thread's retire list.
+   * @tparam T Dynamic type of the retired object
+   * @tparam F Callable invoked as `deleter(ptr)` on reclaim
+   * @param ptr Pointer no longer reachable from the data structure
+   * @param deleter Custom reclaim function (pool return, arena free, etc.)
+   *
+   * @note A null pointer is ignored. Triggers @ref flush when the list
+   *       exceeds @ref MAX_RETIRE_COUNT.
+   */
+  template <typename T, typename F> void retire(T *ptr, F &&deleter) {
+    if (ptr == nullptr)
+      return;
+    retire_impl(ptr, [ptr, d = std::forward<F>(deleter)]() mutable { d(ptr); });
   }
 
   /**
@@ -259,6 +254,12 @@ public:
   void flush();
 
 private:
+  void retire_impl(void *ptr, detail::move_only_function<void()> fn) {
+    m_retire_list.push_back(RetiredNode(ptr, std::move(fn)));
+    if (m_retire_list.size() >= MAX_RETIRE_COUNT)
+      flush();
+  }
+
   HazardDomain &m_domain;                  ///< Bound reclamation domain
   HazardRecord *m_record;                  ///< Acquired hazard record
   std::vector<RetiredNode> m_retire_list; ///< Per-handle retirees
@@ -309,6 +310,15 @@ public:
    * @param ptr Pointer to retire (null ignored by the handle)
    */
   template <typename T> void retire(T *ptr);
+
+  /**
+   * @brief Retires a pointer with a custom reclaimer for this domain.
+   * @tparam T Dynamic type of the retired object
+   * @tparam F Callable invoked as `deleter(ptr)` on reclaim
+   * @param ptr Pointer to retire (null ignored by the handle)
+   * @param deleter Custom reclaim function
+   */
+  template <typename T, typename F> void retire(T *ptr, F &&deleter);
 
   /**
    * @brief Forces a scan of the calling thread's retire list for this domain.
@@ -546,6 +556,11 @@ thread_handle(HazardDomain &domain = default_domain()) {
 
 template <typename T> void HazardDomain::retire(T *ptr) {
   thread_handle(*this).retire(ptr);
+}
+
+template <typename T, typename F>
+void HazardDomain::retire(T *ptr, F &&deleter) {
+  thread_handle(*this).retire(ptr, std::forward<F>(deleter));
 }
 
 inline void HazardDomain::flush() { thread_handle(*this).flush(); }
