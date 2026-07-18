@@ -23,6 +23,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(QUARK_BUILD_TESTS "Build test suite" ON)
 option(QUARK_BUILD_BENCH "Build Google Benchmark harness" OFF)
+option(QUARK_BUILD_FUZZ "Build libFuzzer targets" OFF)
 option(QUARK_LOGGING "Enable structured logging" ON)
 set(QUARK_SANITIZER "" CACHE STRING
     "Sanitizer instrumentation: empty | address | thread | undefined")
@@ -107,6 +108,14 @@ endif()
 
 if(QUARK_BUILD_BENCH)
   add_subdirectory(bench)
+endif()
+
+if(QUARK_BUILD_FUZZ)
+  if(MSVC)
+    message(WARNING "QUARK_BUILD_FUZZ requires Clang libFuzzer — skipping on MSVC")
+  else()
+    add_subdirectory(fuzz)
+  endif()
 endif()
 
 # -- Install / package export -------------------------------------------------

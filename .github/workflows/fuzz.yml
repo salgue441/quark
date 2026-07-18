@@ -1,0 +1,56 @@
+name: fuzz
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  fuzz-hp:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-17 cmake ninja-build
+
+      - name: Download corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: fuzz-corpus-hp_retire
+          path: fuzz/corpus/hp_retire
+        continue-on-error: true
+
+      - name: Configure & build
+        env:
+          CC: clang-17
+          CXX: clang++-17
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DQUARK_BUILD_TESTS=OFF \
+            -DQUARK_BUILD_FUZZ=ON
+          cmake --build build --parallel --target fuzz_hp_retire
+
+      - name: Run fuzz
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TIME=1800
+          else
+            TIME=300
+          fi
+          mkdir -p fuzz/corpus/hp_retire
+          ./build/fuzz/fuzz_hp_retire fuzz/corpus/hp_retire \
+            -max_total_time=$TIME -artifact_prefix=fuzz-crash-
+
+      - name: Upload corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-hp_retire
+          path: fuzz/corpus/hp_retire
