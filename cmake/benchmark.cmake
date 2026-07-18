@@ -1,8 +1,10 @@
-# Fetch Google Benchmark and provide quark_add_benchmark().
+# cmake/benchmark.cmake
 #
-# Usage from bench/CMakeLists.txt:
-#   include(benchmark)
-#   quark_add_benchmark(NAME quark_bench SOURCES bench_main.cpp)
+# Fetches Google Benchmark and provides quark_add_benchmark() for harness
+# executables under bench/.
+#
+# @author Carlos Salguero
+# @date 2026-07-18
 
 include(FetchContent)
 

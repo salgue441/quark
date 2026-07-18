@@ -1,8 +1,10 @@
-# Fetch Catch2 and provide quark_add_catch_test().
+# cmake/catch2.cmake
 #
-# Usage from tests/CMakeLists.txt:
-#   include(catch2)
-#   quark_add_catch_test(NAME foo SOURCES foo.cpp)
+# Fetches Catch2 v3 and provides quark_add_catch_test() for TEST_CASE-based
+# suites. Included from tests/CMakeLists.txt when Catch2 tests are added.
+#
+# @author Carlos Salguero
+# @date 2026-07-18
 
 include(FetchContent)
 

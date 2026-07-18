@@ -1,0 +1,157 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-24.04
+            cxx: g++-13
+            cc: gcc-13
+            generator: Ninja
+            extra_packages: g++-13 ninja-build ccache
+
+          - name: linux-clang
+            os: ubuntu-24.04
+            cxx: clang++-17
+            cc: clang-17
+            generator: Ninja
+            extra_packages: clang-17 ninja-build ccache
+
+          - name: macos-clang
+            os: macos-14
+            cxx: clang++
+            cc: clang
+            generator: Ninja
+            extra_packages: ""
+
+          - name: windows-msvc
+            os: windows-2022
+            cxx: ""
+            cc: ""
+            generator: "Visual Studio 17 2022"
+            extra_packages: ""
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ${{ matrix.extra_packages }}
+
+      - name: Install packages (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja ccache
+
+      - name: Setup ccache
+        if: runner.os != 'Windows'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.name }}
+          max-size: 500M
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+        run: |
+          cmake -B build -G "${{ matrix.generator }}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQUARK_BUILD_TESTS=ON \
+            -DQUARK_BUILD_BENCH=OFF
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -B build -G "${{ matrix.generator }}" -A x64 `
+            -DQUARK_BUILD_TESTS=ON `
+            -DQUARK_BUILD_BENCH=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure --parallel
+
+  docker:
+    name: docker-test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & test (target=test)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: test
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  sanitize:
+    name: linux-asan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++-13 ccache
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-asan
+          max-size: 500M
+
+      - name: Configure
+        env:
+          CC: gcc-13
+          CXX: g++-13
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DQUARK_BUILD_TESTS=ON \
+            -DQUARK_SANITIZER=address
+
+      - name: Build & test
+        run: |
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure --parallel

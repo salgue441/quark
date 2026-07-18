@@ -13,7 +13,7 @@
  * (e.g., release vs. debug builds).
  *
  * @author Carlos Salguero
- * @date 2026
+ * @date 2026-07-18
  * @copyright Copyright (c) 2026
  *
  * @example

@@ -12,7 +12,7 @@
  * records automatically capture source location information and timestamps.
  *
  * @author Carlos Salguero
- * @date 2026-07-17
+ * @date 2026-07-18
  * @copyright Copyright (c) 2026
  *
  * @example

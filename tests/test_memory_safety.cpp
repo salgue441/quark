@@ -1,8 +1,21 @@
-// tests/test_memory_safety.cpp
-//
-// Unit + stress tests for memory/tagged_ptr.hpp and memory/hazard_ptr.hpp.
-// Build with: g++ -std=c++23 -O2 -fsanitize=thread,address -I include tests/test_memory_safety.cpp -o test_memory_safety
-// Or via CMake with -DQUARK_SANITIZE=ON
+/**
+ * @file tests/test_memory_safety.cpp
+ * @brief Unit and stress tests for TaggedPtr and HazardDomain.
+ *
+ * Covers construction/CAS/ABA behavior for tagged pointers and protect /
+ * retire / flush semantics for hazard pointers, including a concurrent
+ * stress section.
+ *
+ * @author Carlos Salguero
+ * @date 2026-07-18
+ * @copyright Copyright (c) 2026
+ *
+ * Build:
+ * @code
+ * g++ -std=c++23 -O2 -I include tests/test_memory_safety.cpp -o test_memory_safety
+ * # or: cmake --build build && ctest --test-dir build -R memory_safety
+ * @endcode
+ */
 
 #include <quark/memory/tagged_ptr.hpp>
 #include <quark/memory/hazard_ptr.hpp>

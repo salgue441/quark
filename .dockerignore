@@ -1,0 +1,25 @@
+# Git
+.git
+.github
+.gitignore
+
+# Build trees / IDE
+build/
+cmake-build-*/
+out/
+.vs/
+.vscode/
+.idea/
+compile_commands.json
+
+# Docs / noise (keep README for context if copied later)
+*.md
+!README.md
+LICENSE
+docs/
+
+# Tooling caches
+.clang-format
+.clang-tidy
+**/*.user
+**/*~

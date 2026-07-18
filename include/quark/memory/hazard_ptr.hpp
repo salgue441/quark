@@ -18,7 +18,7 @@
  * - Double-flush + orphan handoff on thread exit to avoid leaks / UAF
  *
  * @author Carlos Salguero
- * @date 2026-07-17
+ * @date 2026-07-18
  * @copyright Copyright (c) 2026
  *
  * @example
@@ -82,18 +82,44 @@
 
 namespace quark {
 
+/**
+ * @brief Number of hazard pointers reserved per thread.
+ *
+ * Two slots cover typical queue operations (current node + successor).
+ * Increase at compile time if a structure needs more simultaneous protections.
+ */
 inline constexpr std::size_t HP_PER_THREAD = 2;
+
+/**
+ * @brief Maximum concurrent threads that may hold hazard records.
+ *
+ * Sizes the global `HazardRecord` table. Exceeding this limit is fatal.
+ */
 inline constexpr std::size_t MAX_THREADS = 128;
+
+/**
+ * @brief Retire-list size that triggers an automatic scan.
+ *
+ * Rule of thumb: at least `MAX_THREADS * HP_PER_THREAD` plus slack so a
+ * full hazard set cannot permanently stall reclamation.
+ */
 inline constexpr std::size_t MAX_RETIRE_COUNT = MAX_THREADS * HP_PER_THREAD * 2;
 
 /**
  * @brief Per-thread record containing hazard slots.
+ *
+ * Cache-line aligned so adjacent threads do not false-share slot storage.
+ * Slots are atomic to allow lock-free scans from other threads.
  */
 struct alignas(CACHE_LINE) HazardRecord {
-  std::array<std::atomic<void *>, HP_PER_THREAD> slots{};
-  std::atomic<bool> in_use{false};
-  std::atomic<std::thread::id> owner_id{};
+  std::array<std::atomic<void *>, HP_PER_THREAD>
+      slots{}; ///< Published protected pointers
+  std::atomic<bool> in_use{false}; ///< Whether a thread currently owns this record
+  std::atomic<std::thread::id> owner_id{}; ///< Owning thread (debug aid)
 
+  /**
+   * @brief Initializes every hazard slot to nullptr.
+   */
   HazardRecord() {
     for (auto &s : slots)
       s.store(nullptr, std::memory_order_relaxed);
@@ -106,16 +132,21 @@ struct alignas(CACHE_LINE) HazardRecord {
 /**
  * @brief Type-erased retired pointer with a move-only deleter.
  *
- * The deleter is invoked exactly once via reclaim(). Destroying a
- * RetiredNode without reclaim() does not free the pointer — callers must
- * reclaim, transfer ownership, or intentionally leak survivors.
+ * The deleter is invoked exactly once via @ref reclaim. Destroying a
+ * `RetiredNode` without reclaiming does **not** free the pointer — callers
+ * must reclaim, transfer ownership (orphans), or intentionally defer.
  */
 struct RetiredNode {
-  void *ptr = nullptr;
-  std::move_only_function<void()> deleter;
+  void *ptr = nullptr; ///< Address pending reclamation
+  std::move_only_function<void()> deleter; ///< Type-erased `delete` functor
 
   RetiredNode() = default;
 
+  /**
+   * @brief Builds a retired node that deletes `p` with `delete`.
+   * @tparam T Dynamic type of the retired object
+   * @param p Non-owning pointer that will be deleted on reclaim
+   */
   template <typename T>
   explicit RetiredNode(T *p)
       : ptr(p), deleter([p] { delete p; }) {}
@@ -126,6 +157,11 @@ struct RetiredNode {
   RetiredNode(const RetiredNode &) = delete;
   RetiredNode &operator=(const RetiredNode &) = delete;
 
+  /**
+   * @brief Invokes the deleter once and clears the node.
+   *
+   * Safe to call repeatedly; subsequent calls are no-ops.
+   */
   void reclaim() noexcept {
     if (deleter) {
       deleter();
@@ -138,20 +174,41 @@ struct RetiredNode {
 class HazardDomain;
 
 /**
- * @brief RAII handle owning one hazard record and this thread's retire list
- *        for a domain.
+ * @brief RAII handle owning one hazard record and this thread's retire list.
+ *
+ * One handle exists per `(thread, domain)` pair via @ref thread_handle.
+ * Destruction double-flushes the retire list and hands remaining survivors
+ * to the domain orphan list.
  */
 class ThreadHazardHandle {
 public:
+  /**
+   * @brief Acquires a hazard record from `domain`.
+   * @param domain Domain that owns the global slot table
+   */
   explicit ThreadHazardHandle(HazardDomain &domain);
 
   ThreadHazardHandle(const ThreadHazardHandle &) = delete;
   ThreadHazardHandle &operator=(const ThreadHazardHandle &) = delete;
 
+  /**
+   * @brief Flushes retirees, releases the record, then orphans survivors.
+   */
   ~ThreadHazardHandle();
 
+  /**
+   * @brief Returns the thread's hazard record for this domain.
+   */
   [[nodiscard]] HazardRecord *record() const noexcept { return m_record; }
 
+  /**
+   * @brief Queues `ptr` for reclamation on this thread's retire list.
+   * @tparam T Dynamic type of the retired object
+   * @param ptr Pointer no longer reachable from the data structure
+   *
+   * @note A null pointer is ignored. Triggers @ref flush when the list
+   *       exceeds @ref MAX_RETIRE_COUNT.
+   */
   template <typename T> void retire(T *ptr) {
     if (ptr == nullptr)
       return;
@@ -161,16 +218,25 @@ public:
       flush();
   }
 
+  /**
+   * @brief Scans this thread's retire list for the bound domain.
+   */
   void flush();
 
 private:
-  HazardDomain &m_domain;
-  HazardRecord *m_record;
-  std::vector<RetiredNode> m_retire_list;
+  HazardDomain &m_domain;                  ///< Bound reclamation domain
+  HazardRecord *m_record;                  ///< Acquired hazard record
+  std::vector<RetiredNode> m_retire_list; ///< Per-handle retirees
 };
 
 /**
  * @brief Global registry managing hazard pointers and retired nodes.
+ *
+ * Non-copyable / non-movable so record addresses remain stable for the
+ * lifetime of published hazard slots.
+ *
+ * @warning Destroy the domain only after all threads have released their
+ *          @ref ThreadHazardHandle instances.
  */
 class HazardDomain {
 public:
@@ -179,6 +245,9 @@ public:
   HazardDomain(const HazardDomain &) = delete;
   HazardDomain &operator=(const HazardDomain &) = delete;
 
+  /**
+   * @brief Reclaims orphaned nodes after asserting no records remain in use.
+   */
   ~HazardDomain() {
     for (auto &rec : m_records) {
       assert(!rec.in_use.load(std::memory_order_acquire) &&
@@ -199,6 +268,8 @@ public:
 
   /**
    * @brief Retires a pointer onto the calling thread's list for this domain.
+   * @tparam T Dynamic type of the retired object
+   * @param ptr Pointer to retire (null ignored by the handle)
    */
   template <typename T> void retire(T *ptr);
 
@@ -210,6 +281,10 @@ public:
   /**
    * @brief Scans a retire list and reclaims nodes not present in any hazard
    *        slot. Merges any orphaned nodes left by exited threads first.
+   *
+   * @param retire_list In/out list of pending retirees for one thread
+   *
+   * @note Complexity is O(threads × HP_PER_THREAD + retire_list.size()).
    */
   void scan(std::vector<RetiredNode> &retire_list) {
     {
@@ -258,6 +333,11 @@ private:
   friend class ThreadHazardHandle;
   friend ThreadHazardHandle &thread_handle(HazardDomain &);
 
+  /**
+   * @brief Claims an unused hazard record for the calling thread.
+   * @return Pointer to the acquired record
+   * @warning Aborts via `QUARK_FATAL` if @ref MAX_THREADS is exhausted
+   */
   HazardRecord *acquire_record() {
     for (auto &rec : m_records) {
       bool expected = false;
@@ -274,6 +354,10 @@ private:
     std::unreachable();
   }
 
+  /**
+   * @brief Clears slots and returns a record to the free pool.
+   * @param rec Record previously returned by @ref acquire_record
+   */
   void release_record(HazardRecord *rec) noexcept {
     for (auto &s : rec->slots)
       s.store(nullptr, std::memory_order_release);
@@ -282,6 +366,10 @@ private:
     rec->in_use.store(false, std::memory_order_release);
   }
 
+  /**
+   * @brief Appends retirees that outlived their retiring thread.
+   * @param nodes Survivors still protected by other threads' hazards
+   */
   void adopt_orphans(std::vector<RetiredNode> nodes) {
     if (nodes.empty())
       return;
@@ -290,9 +378,9 @@ private:
                      std::make_move_iterator(nodes.end()));
   }
 
-  std::array<HazardRecord, MAX_THREADS> m_records{};
-  std::mutex m_orphan_mutex;
-  std::vector<RetiredNode> m_orphans;
+  std::array<HazardRecord, MAX_THREADS> m_records{}; ///< Global hazard table
+  std::mutex m_orphan_mutex;           ///< Guards @ref m_orphans
+  std::vector<RetiredNode> m_orphans; ///< Cross-thread deferred retirees
 };
 
 inline ThreadHazardHandle::ThreadHazardHandle(HazardDomain &domain)
@@ -314,15 +402,37 @@ inline void ThreadHazardHandle::flush() { m_domain.scan(m_retire_list); }
 
 /**
  * @brief RAII guard for a single hazard slot.
+ *
+ * Publishes a pointer so concurrent scanners will not reclaim it. Clears the
+ * slot automatically on destruction. A thread must already hold a
+ * @ref ThreadHazardHandle / @ref HazardRecord before constructing a guard.
+ *
+ * @code
+ * auto& handle = quark::thread_handle(domain);
+ * {
+ *     quark::HazardGuard guard(handle.record(), 0);
+ *     guard.protect(node);
+ *     // ... safe access ...
+ * }
+ * @endcode
  */
 class HazardGuard {
 public:
+  /**
+   * @brief Binds the guard to `record->slots[slot_index]`.
+   * @param record Thread-local hazard record
+   * @param slot_index Index in `[0, HP_PER_THREAD)`
+   */
   HazardGuard(HazardRecord *record, std::size_t slot_index) noexcept
       : m_slot(record->slots[slot_index]) {
     assert(slot_index < HP_PER_THREAD);
   }
 
-  // Back-compat overload (domain unused).
+  /**
+   * @brief Compatibility overload; the domain argument is unused.
+   * @param record Thread-local hazard record
+   * @param slot_index Index in `[0, HP_PER_THREAD)`
+   */
   HazardGuard(HazardDomain &, HazardRecord *record,
               std::size_t slot_index) noexcept
       : HazardGuard(record, slot_index) {}
@@ -330,22 +440,37 @@ public:
   HazardGuard(const HazardGuard &) = delete;
   HazardGuard &operator=(const HazardGuard &) = delete;
 
+  /** @brief Clears the bound hazard slot. */
   ~HazardGuard() noexcept { clear(); }
 
+  /**
+   * @brief Publishes `ptr` into the hazard slot (release).
+   * @param ptr Address to protect; may be nullptr
+   */
   void protect(void *ptr) noexcept {
     m_slot.store(ptr, std::memory_order_release);
   }
 
+  /**
+   * @brief Typed convenience overload of @ref protect(void*).
+   * @tparam T Pointee type
+   * @param ptr Address to protect
+   */
   template <typename T> void protect(T *ptr) noexcept {
     protect(static_cast<void *>(ptr));
   }
 
+  /** @brief Stores nullptr into the slot (release). */
   void clear() noexcept { m_slot.store(nullptr, std::memory_order_release); }
 
 private:
-  std::atomic<void *> &m_slot;
+  std::atomic<void *> &m_slot; ///< Bound hazard slot
 };
 
+/**
+ * @brief Returns the process-wide default hazard domain.
+ * @return Reference to a function-local static domain
+ */
 [[nodiscard]] inline HazardDomain &default_domain() {
   static HazardDomain domain;
   return domain;
@@ -353,6 +478,11 @@ private:
 
 /**
  * @brief Returns the calling thread's handle for a domain.
+ *
+ * Handles are keyed by domain address so one thread may use multiple domains.
+ *
+ * @param domain Domain to bind (defaults to @ref default_domain)
+ * @return Reference to the thread-local handle
  */
 inline ThreadHazardHandle &
 thread_handle(HazardDomain &domain = default_domain()) {

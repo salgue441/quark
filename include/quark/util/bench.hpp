@@ -15,7 +15,7 @@
  *          logging and chrono operations.
  *
  * @author Carlos Salguero
- * @date 2026-07-17
+ * @date 2026-07-18
  * @copyright Copyright (c) 2026
  *
  * @example
@@ -47,16 +47,34 @@ namespace quark {
 /**
  * @brief RAII timer for measuring and logging execution time.
  *
- * Uses std::chrono::steady_clock and reports via std::println (C++23).
+ * Measures from construction to destruction with
+ * `std::chrono::steady_clock` and reports via `std::println` (C++23).
+ *
+ * @warning Intended for development profiling only — I/O in the destructor
+ *          is unsuitable for production hot paths.
+ *
+ * @code
+ * {
+ *     quark::ScopedTimer timer("expensive_operation");
+ *     // ...
+ * } // prints: [timer] expensive_operation: 12.345 ms
+ * @endcode
  */
 class ScopedTimer {
 public:
+  /**
+   * @brief Starts the timer under the given label.
+   * @param name Human-readable name printed on destruction
+   */
   explicit ScopedTimer(std::string name) noexcept
       : m_name(std::move(name)), m_start(std::chrono::steady_clock::now()) {}
 
   ScopedTimer(const ScopedTimer &) = delete;
   ScopedTimer &operator=(const ScopedTimer &) = delete;
 
+  /**
+   * @brief Stops the timer and prints elapsed milliseconds to stdout.
+   */
   ~ScopedTimer() {
     const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                         std::chrono::steady_clock::now() - m_start)
@@ -66,8 +84,8 @@ public:
   }
 
 private:
-  std::string m_name;
-  std::chrono::steady_clock::time_point m_start;
+  std::string m_name; ///< Label shown in the timer output
+  std::chrono::steady_clock::time_point m_start; ///< Capture of construction time
 };
 
 } // namespace quark
