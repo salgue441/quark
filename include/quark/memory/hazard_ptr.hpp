@@ -166,11 +166,23 @@ struct RetiredNode {
    * @param p Non-owning pointer compared against hazard slots during scan
    * @param fn Callable invoked exactly once when the node is reclaimed
    */
-  explicit RetiredNode(void *p, detail::move_only_function<void()> fn) noexcept
+  explicit RetiredNode(void *p, detail::move_only_function<void()> fn)
       : ptr(p), reclaim_fn(std::move(fn)) {}
 
-  RetiredNode(RetiredNode &&) noexcept = default;
-  RetiredNode &operator=(RetiredNode &&) noexcept = default;
+  RetiredNode(RetiredNode &&other) noexcept
+      : ptr(other.ptr), reclaim_fn(std::move(other.reclaim_fn)) {
+    other.ptr = nullptr;
+  }
+
+  RetiredNode &operator=(RetiredNode &&other) noexcept {
+    if (this != &other) {
+      reclaim();
+      ptr = other.ptr;
+      reclaim_fn = std::move(other.reclaim_fn);
+      other.ptr = nullptr;
+    }
+    return *this;
+  }
   RetiredNode(const RetiredNode &) = delete;
   RetiredNode &operator=(const RetiredNode &) = delete;
 
@@ -358,6 +370,7 @@ public:
     }
 
     std::vector<RetiredNode> survivors;
+    std::vector<RetiredNode> to_reclaim;
     survivors.reserve(retire_list.size());
 
     const auto freed_before = retire_list.size();
@@ -374,14 +387,17 @@ public:
       if (hazardous) {
         survivors.push_back(std::move(node));
       } else {
-        node.reclaim();
+        to_reclaim.push_back(std::move(node));
       }
     }
 
-    const auto freed = freed_before - survivors.size();
+    retire_list = std::move(survivors);
+
+    const auto freed = freed_before - retire_list.size();
     (void)freed;
 
-    retire_list = std::move(survivors);
+    for (auto &node : to_reclaim)
+      node.reclaim();
   }
 
 private:
