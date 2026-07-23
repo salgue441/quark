@@ -217,16 +217,21 @@ private:
 
     ::new (static_cast<void *>(node->storage)) T(std::forward<U>(value));
 
+    auto &handle = thread_handle(*m_domain);
     Backoff backoff;
     for (;;) {
+      HazardGuard guard(handle.record(), 0);
+
       auto tail = m_tail.value.load(std::memory_order_acquire);
       QUARK_ASSERT(tail.ptr() != nullptr);
-      auto next = tail.ptr()->next.load(std::memory_order_acquire);
+      guard.protect(tail.ptr());
 
       if (m_tail.value.load(std::memory_order_acquire) != tail) {
         backoff.pause();
         continue;
       }
+
+      auto next = tail.ptr()->next.load(std::memory_order_acquire);
 
       if (next.ptr() == nullptr) {
         if (tail.ptr()->next.compare_exchange_weak(next, next.next(node),
