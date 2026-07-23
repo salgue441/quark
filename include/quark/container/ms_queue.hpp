@@ -15,6 +15,7 @@
  * #include <quark/container/ms_queue.hpp>
  *
  * quark::MsQueue<int> q;
+ * q.try_push(1);
  * int v = 0;
  * q.try_pop(v); // false when empty
  * @endcode
@@ -87,25 +88,36 @@ public:
   }
 
   /**
-   * @brief Stub enqueue — not yet implemented (Task 3).
-   * @return Always false
+   * @brief Attempts to enqueue by moving `value`.
+   * @return false if node allocation fails
    */
-  [[nodiscard]] bool try_push(T &&) { return false; }
+  [[nodiscard]] bool try_push(T &&value) {
+    return try_push_impl(std::move(value));
+  }
+
+  /**
+   * @brief Attempts to enqueue by copying `value`.
+   * @return false if node allocation fails
+   */
+  [[nodiscard]] bool try_push(const T &value)
+    requires std::is_copy_constructible_v<T>
+  {
+    return try_push_impl(value);
+  }
 
   /**
    * @brief Attempts to dequeue into `out`.
    * @return false if the queue is empty
    */
   [[nodiscard]] bool try_pop(T &out) {
-    (void)out;
     auto &handle = thread_handle(*m_domain);
     Backoff backoff;
 
     for (;;) {
-      HazardGuard guard(handle.record(), 0);
+      HazardGuard guard_head(handle.record(), 0);
 
       auto head = m_head.value.load(std::memory_order_acquire);
-      guard.protect(head.ptr());
+      guard_head.protect(head.ptr());
 
       if (m_head.value.load(std::memory_order_acquire) != head) {
         backoff.pause();
@@ -125,7 +137,7 @@ public:
         if (next.ptr() == nullptr)
           return false;
 
-        // Lagging tail: help swing it forward (full dequeue comes later).
+        // Lagging tail: help swing it forward.
         m_tail.value.compare_exchange_weak(tail, tail.next(next.ptr()),
                                            std::memory_order_release,
                                            std::memory_order_acquire);
@@ -133,9 +145,62 @@ public:
         continue;
       }
 
-      // Non-empty path deferred to Task 3.
-      backoff.pause();
+      if (next.ptr() == nullptr) {
+        backoff.pause();
+        continue;
+      }
+
+      // Protect the successor before using it (slot 1; head stays in slot 0).
+      HazardGuard guard_next(handle.record(), 1);
+      guard_next.protect(next.ptr());
+
+      if (m_head.value.load(std::memory_order_acquire) != head) {
+        backoff.pause();
+        continue;
+      }
+
+      Node *const old_head = head.ptr();
+      Node *const next_node = next.ptr();
+
+      // Swing head to next; only then is this thread the exclusive owner of
+      // the value in next_node (which becomes the new sentinel).
+      if (!m_head.value.compare_exchange_weak(head, head.next(next_node),
+                                              std::memory_order_release,
+                                              std::memory_order_acquire)) {
+        backoff.pause();
+        continue;
+      }
+
+      T *addr = std::launder(reinterpret_cast<T *>(next_node->storage));
+      out = std::move(*addr);
+      std::destroy_at(addr);
+      m_domain->retire(old_head);
+      return true;
     }
+  }
+
+  /** @brief Non-blocking push returning @ref VoidResult. */
+  [[nodiscard]] VoidResult push(T &&value) {
+    if (try_push(std::move(value)))
+      return Ok();
+    return Err(Error::AllocationFailed);
+  }
+
+  /** @brief Non-blocking copy-push returning @ref VoidResult. */
+  [[nodiscard]] VoidResult push(const T &value)
+    requires std::is_copy_constructible_v<T>
+  {
+    if (try_push(value))
+      return Ok();
+    return Err(Error::AllocationFailed);
+  }
+
+  /** @brief Non-blocking pop returning the value or @ref Error::QueueEmpty. */
+  [[nodiscard]] Result<T> pop() {
+    T out;
+    if (try_pop(out))
+      return Ok(std::move(out));
+    return Err<T>(Error::QueueEmpty);
   }
 
 private:
@@ -143,6 +208,44 @@ private:
     AtomicTaggedPtr<Node> next{};
     alignas(T) std::byte storage[sizeof(T)]{};
   };
+
+  template <typename U>
+  [[nodiscard]] bool try_push_impl(U &&value) {
+    auto *node = new (std::nothrow) Node;
+    if (node == nullptr)
+      return false;
+
+    ::new (static_cast<void *>(node->storage)) T(std::forward<U>(value));
+
+    Backoff backoff;
+    for (;;) {
+      auto tail = m_tail.value.load(std::memory_order_acquire);
+      QUARK_ASSERT(tail.ptr() != nullptr);
+      auto next = tail.ptr()->next.load(std::memory_order_acquire);
+
+      if (m_tail.value.load(std::memory_order_acquire) != tail) {
+        backoff.pause();
+        continue;
+      }
+
+      if (next.ptr() == nullptr) {
+        if (tail.ptr()->next.compare_exchange_weak(next, next.next(node),
+                                                    std::memory_order_release,
+                                                    std::memory_order_acquire)) {
+          // Help swing tail to the new node (may already have been helped).
+          m_tail.value.compare_exchange_weak(tail, tail.next(node),
+                                             std::memory_order_release,
+                                             std::memory_order_acquire);
+          return true;
+        }
+      } else {
+        m_tail.value.compare_exchange_weak(tail, tail.next(next.ptr()),
+                                           std::memory_order_release,
+                                           std::memory_order_acquire);
+      }
+      backoff.pause();
+    }
+  }
 
   void init_sentinel() {
     auto *sentinel = new Node();
