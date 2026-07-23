@@ -37,12 +37,12 @@ Quark is a **header-only** C++23 library for lock-free concurrent data structure
 
 ## Status
 
-**In tree today:** memory safety primitives, core utilities, and `SpscQueue`.
+**In tree today:** memory safety primitives, core utilities, `SpscQueue`, and `MsQueue`.
 
 | Structure | Producers | Consumers | ABA-safe | Status |
 |---|---|---|---|---|
 | `quark::SpscQueue<T>` | 1 | 1 | N/A | In tree — ring buffer |
-| `quark::MsQueue<T>` | N | N | Yes | Planned — Michael-Scott (1996) |
+| `quark::MsQueue<T>` | N | N | Yes | In tree — Michael-Scott (1996) |
 | `quark::LfHashMap<K,V>` | N | N | Yes | Planned — open addressing |
 
 ---
@@ -55,7 +55,7 @@ Design rules for containers and memory orders: [docs/DESIGN.md](docs/DESIGN.md)
 graph TB
     subgraph Public API
         SPSC["SpscQueue&lt;T&gt;<br/><i>SPSC · ring buffer</i>"]
-        MSQ["MsQueue&lt;T&gt;<br/><i>MPMC · linked list · planned</i>"]
+        MSQ["MsQueue&lt;T&gt;<br/><i>MPMC · linked list</i>"]
         HM["LfHashMap&lt;K,V&gt;<br/><i>MPMC · open addressing · planned</i>"]
     end
 

@@ -5,7 +5,7 @@
  * Includes the full public surface:
  * - `core/` — version, config, `Result`/`Error`, `CacheAligned`
  * - `memory/` — `TaggedPtr`, hazard-pointer reclamation
- * - `container/` — `SpscQueue` and related structures
+ * - `container/` — `SpscQueue`, `MsQueue`, and related structures
  * - `util/` — logging, timing, assertions, CAS backoff
  *
  * Prefer narrower headers in production translation units to keep compile
@@ -22,12 +22,16 @@
  * int main() {
  *     quark::SpscQueue<int> q(8);
  *     q.try_push(1);
+ *
+ *     quark::MsQueue<int> msq;
+ *     msq.try_push(1);
  * }
  * @endcode
  */
 
 #pragma once
 
+#include <quark/container/ms_queue.hpp>
 #include <quark/container/spsc_queue.hpp>
 #include <quark/core/types.hpp>
 #include <quark/memory/hazard_ptr.hpp>
