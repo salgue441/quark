@@ -45,10 +45,15 @@ namespace quark {
 /**
  * @brief Unbounded lock-free MPMC queue (Michael & Scott).
  *
- * @tparam T Move-constructible element type
+ * @tparam T Move-constructible element type (need not be default-constructible
+ *           for @ref try_push / @ref try_pop; @ref pop requires default
+ *           construction of a temporary)
  *
  * @warning Concurrent use requires a live @ref HazardDomain (owned or
- *          borrowed) for the lifetime of all workers.
+ *          borrowed) for the lifetime of all workers. The destructor assumes
+ *          exclusive access (no concurrent enqueues/dequeues). For a borrowed
+ *          domain, workers must have released their thread handles before the
+ *          queue is destroyed; the domain itself is not destroyed by the queue.
  */
 template <typename T> class MsQueue {
 public:
@@ -77,9 +82,30 @@ public:
   MsQueue(MsQueue &&) = delete;
   MsQueue &operator=(MsQueue &&) = delete;
 
+  /**
+   * @brief Drains remaining elements and reclaims nodes.
+   *
+   * Assumes exclusive access (no concurrent producers/consumers). Walks the
+   * list without requiring default-constructible @tparam T. Owned domains are
+   * flushed via @ref release_thread_handle then destroyed; borrowed domains
+   * are left intact.
+   */
   ~MsQueue() {
-    auto head = m_head.value.load(std::memory_order_relaxed);
-    delete head.ptr();
+    // Exclusive teardown: walk from the current sentinel and destroy any live T.
+    auto head_tp = m_head.value.load(std::memory_order_relaxed);
+    Node *node = head_tp.ptr();
+    QUARK_ASSERT(node != nullptr);
+
+    Node *next = node->next.load(std::memory_order_relaxed).ptr();
+    delete node; // sentinel — no live T
+
+    while (next != nullptr) {
+      node = next;
+      next = node->next.load(std::memory_order_relaxed).ptr();
+      T *addr = std::launder(reinterpret_cast<T *>(node->storage));
+      std::destroy_at(addr);
+      delete node;
+    }
 
     if (m_owned_domain) {
       release_thread_handle(*m_domain);
