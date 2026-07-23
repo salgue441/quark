@@ -37,15 +37,13 @@ Quark is a **header-only** C++23 library for lock-free concurrent data structure
 
 ## Status
 
-**In tree today:** memory safety primitives + core utilities.
+**In tree today:** memory safety primitives, core utilities, and `SpscQueue`.
 
-**Planned containers:**
-
-| Structure | Producers | Consumers | ABA-safe | Notes |
+| Structure | Producers | Consumers | ABA-safe | Status |
 |---|---|---|---|---|
-| `quark::SpscQueue<T>` | 1 | 1 | N/A | Ring buffer; highest throughput |
-| `quark::MsQueue<T>` | N | N | Yes | Michael-Scott queue (1996) |
-| `quark::LfHashMap<K,V>` | N | N | Yes | Fixed-size open addressing |
+| `quark::SpscQueue<T>` | 1 | 1 | N/A | In tree — ring buffer |
+| `quark::MsQueue<T>` | N | N | Yes | Planned — Michael-Scott (1996) |
+| `quark::LfHashMap<K,V>` | N | N | Yes | Planned — open addressing |
 
 ---
 
@@ -56,7 +54,7 @@ Design rules for containers and memory orders: [docs/DESIGN.md](docs/DESIGN.md)
 ```mermaid
 graph TB
     subgraph Public API
-        SPSC["SpscQueue&lt;T&gt;<br/><i>SPSC · ring buffer · planned</i>"]
+        SPSC["SpscQueue&lt;T&gt;<br/><i>SPSC · ring buffer</i>"]
         MSQ["MsQueue&lt;T&gt;<br/><i>MPMC · linked list · planned</i>"]
         HM["LfHashMap&lt;K,V&gt;<br/><i>MPMC · open addressing · planned</i>"]
     end
@@ -87,12 +85,13 @@ graph TB
     MSQ  --> ERR
     HM   --> ERR
 
+    SPSC --> BO
+    MSQ -.-> BO
+    HM  -.-> BO
+
     SPSC -.->|"emits"| LOG
     MSQ  -.->|"emits"| LOG
     HM   -.->|"emits"| LOG
-
-    MSQ -.-> BO
-    HM  -.-> BO
 ```
 
 ### Lock-free CAS model

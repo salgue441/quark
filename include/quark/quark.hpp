@@ -5,6 +5,7 @@
  * Includes the full public surface:
  * - `core/` — version, config, `Result`/`Error`, `CacheAligned`
  * - `memory/` — `TaggedPtr`, hazard-pointer reclamation
+ * - `container/` — `SpscQueue` and related structures
  * - `util/` — logging, timing, assertions, CAS backoff
  *
  * Prefer narrower headers in production translation units to keep compile
@@ -19,16 +20,15 @@
  * #include <quark/quark.hpp>
  *
  * int main() {
- *     auto& domain = quark::default_domain();
- *     (void)domain;
- *     quark::Backoff backoff;
- *     backoff.pause();
+ *     quark::SpscQueue<int> q(8);
+ *     q.try_push(1);
  * }
  * @endcode
  */
 
 #pragma once
 
+#include <quark/container/spsc_queue.hpp>
 #include <quark/core/types.hpp>
 #include <quark/memory/hazard_ptr.hpp>
 #include <quark/memory/tagged_ptr.hpp>

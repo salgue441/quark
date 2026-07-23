@@ -4,6 +4,7 @@ quark_add_catch_test(NAME test_memory_safety SOURCES test_memory_safety.cpp)
 quark_add_catch_test(NAME test_move_only_function SOURCES test_move_only_function.cpp)
 quark_add_catch_test(NAME test_backoff SOURCES test_backoff.cpp)
 quark_add_catch_test(NAME test_version SOURCES test_version.cpp)
+quark_add_catch_test(NAME test_spsc_queue SOURCES test_spsc_queue.cpp)
 
 # Expected-abort coverage: CTest WILL_FAIL does not invert SIGABRT/Exception,
 # so drive the binary through expect_abort.cmake on all platforms.
